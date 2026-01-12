@@ -100,15 +100,14 @@ flowchart TB
             end
 
             subgraph Routes["HTTPRoutes"]
-                WebRoutes["/healthz/*<br/>/app1<br/>/app2"]
-                APIRoutes["/api/*<br/>(version-agnostic)"]
+                AllRoutes["/healthz/*<br/>/app1<br/>/app2<br/>/api/*"]
             end
 
             subgraph Apps["Applications"]
                 HealthApp["health-responder"]
                 WebApp1["sample-app-1"]
                 WebApp2["sample-app-2"]
-                UsersAPI["sample-api<br/>/api/v1/users"]
+                UsersAPI["sample-api"]
             end
         end
     end
@@ -121,10 +120,10 @@ flowchart TB
 
     ILB --> GW
     GW --> Routes
-    WebRoutes --> HealthApp
-    WebRoutes --> WebApp1
-    WebRoutes --> WebApp2
-    APIRoutes --> UsersAPI
+    AllRoutes --> HealthApp
+    AllRoutes --> WebApp1
+    AllRoutes --> WebApp2
+    AllRoutes --> UsersAPI
 
     classDef internet fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef public fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
