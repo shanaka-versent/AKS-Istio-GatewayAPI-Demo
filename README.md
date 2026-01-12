@@ -87,16 +87,16 @@ flowchart TB
     end
 
     subgraph Azure["Azure Cloud"]
-        subgraph PublicEntry["Public Entry Points"]
-            AppGW["Azure App Gateway<br/>(Web Traffic)<br/>Public IP"]
-            APIM["Azure APIM<br/>(API Traffic)<br/>apim-mtkc-poc.azure-api.net<br/>• Rate Limiting<br/>• API Versioning<br/>• Developer Portal"]
+        subgraph PublicEntry["Public Entry Points (TLS Termination #1)"]
+            AppGW["Azure App Gateway<br/>(Web Traffic)<br/>TLS Termination<br/>Public IP"]
+            APIM["Azure APIM<br/>(API Traffic)<br/>TLS Termination<br/>apim-mtkc-poc.azure-api.net<br/>• Rate Limiting<br/>• API Versioning<br/>• Developer Portal"]
         end
 
         subgraph AKS["AKS Cluster (Istio Ambient Mesh)"]
             ILB["Internal Load Balancer<br/>10.0.1.x"]
 
-            subgraph Gateway["Istio Gateway<br/>(K8s Gateway API)"]
-                GW["mtkc-gateway<br/>TLS Termination"]
+            subgraph Gateway["Istio Gateway (TLS Termination #2)"]
+                GW["mtkc-gateway<br/>(K8s Gateway API)"]
             end
 
             subgraph Routes["HTTPRoutes"]
@@ -115,11 +115,11 @@ flowchart TB
     WebClient -->|"HTTPS"| AppGW
     APIClient -->|"HTTPS<br/>/api/v1/users<br/>/api/v2/users"| APIM
 
-    AppGW -->|"HTTPS"| ILB
-    APIM -->|"HTTPS<br/>/api/*"| ILB
+    AppGW -->|"HTTPS<br/>(re-encrypt)"| ILB
+    APIM -->|"HTTPS<br/>(re-encrypt)"| ILB
 
-    ILB --> GW
-    GW --> Routes
+    ILB -->|"HTTPS"| GW
+    GW -->|"HTTP"| Routes
     AllRoutes --> HealthApp
     AllRoutes --> WebApp1
     AllRoutes --> WebApp2
