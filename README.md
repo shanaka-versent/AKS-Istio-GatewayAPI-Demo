@@ -100,7 +100,7 @@ flowchart TB
             end
 
             subgraph Routes["HTTPRoutes"]
-                AllRoutes["/healthz/*<br/>/app1<br/>/app2<br/>/api/*"]
+                AllRoutes["/healthz/*<br/>/app1<br/>/app2<br/>/api/users"]
             end
 
             subgraph Apps["Applications"]
@@ -208,7 +208,7 @@ flowchart TB
         HR1["health-route<br/>namespace: gateway-health<br/>path: /healthz/*"]
         HR2["app1-route<br/>namespace: sample-apps<br/>path: /app1"]
         HR3["app2-route<br/>namespace: sample-apps<br/>path: /app2"]
-        HR4["api-route<br/>namespace: api-services<br/>path: /api/*"]
+        HR4["users-api-route<br/>namespace: api-services<br/>path: /api/users"]
     end
 
     subgraph Backends["Backend Services"]
@@ -262,7 +262,7 @@ flowchart TB
 | `health-route` | gateway-health | `/healthz/*` | health-responder:8080 | App Gateway |
 | `app1-route` | sample-apps | `/app1` | sample-app-1:8080 | App Gateway |
 | `app2-route` | sample-apps | `/app2` | sample-app-2:8080 | App Gateway |
-| `api-route` | api-services | `/api/*` | sample-api:8080 | APIM |
+| `users-api-route` | api-services | `/api/users` | users-api:8080 | APIM |
 
 ### Request Flow Example: GET /app1
 
