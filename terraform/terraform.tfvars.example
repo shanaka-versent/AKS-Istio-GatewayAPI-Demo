@@ -19,11 +19,22 @@ aks_node_vm_size   = "Standard_D2s_v3"
 # HTTPS Configuration (enabled by default)
 enable_https = true
 
-# ArgoCD Configuration (optional)
+# ArgoCD Configuration
+# Manages all K8s resources via GitOps pattern
 # Prerequisites before enabling:
 #   1. Install kubelogin: brew install azure/kubelogin/kubelogin
 #   2. Get AKS credentials: az aks get-credentials --resource-group rg-mtkc-poc --name aks-mtkc-poc
 #   3. Convert kubeconfig: kubelogin convert-kubeconfig -l azurecli
-enable_argocd        = false
+enable_argocd        = true
 argocd_chart_version = "5.55.0"
 argocd_enable_ha     = false
+
+# Azure API Management Configuration (Infrastructure Only)
+# APIM instance and VNet integration are managed by Terraform
+# API configurations (APIs, operations, policies) are managed by ASO via ArgoCD
+# See: kubernetes/10-apim-api-config.yaml
+enable_apim               = true
+apim_sku_name             = "Developer_1"  # ~$50/month for POC
+apim_virtual_network_type = "External"     # Public IP + VNet access to backend
+apim_publisher_name       = "MTKC POC"
+apim_publisher_email      = "admin@example.com"

@@ -1,0 +1,122 @@
+# MTKC POC - APIM API Configuration via Azure Service Operator (ASO)
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+#
+# This file manages APIM API configurations via Kubernetes CRDs
+# Deployed after the service is running (sync wave 9)
+#
+# Traffic Flow:
+#   APIM (/api/v1/users) → rewrite → Internal LB → Istio Gateway → users-api
+#
+# Sync Wave Order:
+#   Wave 7: users-api deployment + service
+#   Wave 9: APIM API configuration (this file)
+
+---
+# Backend Configuration - Points to AKS Internal Load Balancer
+apiVersion: apimanagement.azure.com/v1api20230501preview
+kind: Backend
+metadata:
+  name: aks-internal-lb
+  namespace: api-services
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  owner:
+    name: apim-mtkc-poc
+    group: apimanagement.azure.com
+    kind: Service
+  azureName: aks-internal-lb
+  url: "https://10.0.1.62"
+  protocol: http
+  description: "AKS Internal Load Balancer - Istio Gateway"
+  tls:
+    validateCertificateChain: false
+    validateCertificateName: false
+
+---
+# Users API Definition
+apiVersion: apimanagement.azure.com/v1api20230501preview
+kind: Api
+metadata:
+  name: users-api
+  namespace: api-services
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  owner:
+    name: apim-mtkc-poc
+    group: apimanagement.azure.com
+    kind: Service
+  azureName: users-api
+  displayName: "Users API"
+  path: "api/v1/users"
+  protocols:
+    - https
+  subscriptionRequired: false
+  serviceUrl: "https://10.0.1.62"
+  description: "Users API - Version managed by APIM, backend is version-agnostic"
+
+---
+# Users API - GET operation
+apiVersion: apimanagement.azure.com/v1api20230501preview
+kind: ApiOperation
+metadata:
+  name: get-users
+  namespace: api-services
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  owner:
+    name: users-api
+    group: apimanagement.azure.com
+    kind: Api
+  azureName: get-users
+  displayName: "Get Users"
+  method: GET
+  urlTemplate: "/"
+  description: "Get all users"
+  responses:
+    - statusCode: 200
+      description: "List of users"
+
+---
+# API Policy - URL Rewrite (strip version, keep /api prefix)
+apiVersion: apimanagement.azure.com/v1api20230501preview
+kind: ApiPolicy
+metadata:
+  name: users-api-policy
+  namespace: api-services
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  owner:
+    name: users-api
+    group: apimanagement.azure.com
+    kind: Api
+  azureName: policy
+  format: xml
+  value: |
+    <policies>
+      <inbound>
+        <base />
+        <set-backend-service backend-id="aks-internal-lb" />
+        <set-header name="Host" exists-action="override">
+          <value>mtkc-gateway.istio-ingress.svc.cluster.local</value>
+        </set-header>
+        <!--
+          API Versioning Strategy:
+          - APIM exposes: /api/v1/users (versioned)
+          - Backend receives: /api/users (version stripped, /api/ prefix kept)
+        -->
+        <rewrite-uri template="/api/users" />
+      </inbound>
+      <backend>
+        <base />
+      </backend>
+      <outbound>
+        <base />
+      </outbound>
+      <on-error>
+        <base />
+      </on-error>
+    </policies>

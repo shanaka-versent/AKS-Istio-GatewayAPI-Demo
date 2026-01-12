@@ -1,10 +1,13 @@
 # ArgoCD Application - Sample App 2
 # @author Shanaka Jayasundera - shanakaj@gmail.com
+# Sync Wave 7: Applications after Gateway and HTTPRoutes
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: sample-app-2
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

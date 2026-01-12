@@ -30,7 +30,12 @@ module "network" {
   vnet_address_space  = var.vnet_address_space
   aks_subnet_cidr     = var.aks_subnet_cidr
   appgw_subnet_cidr   = var.appgw_subnet_cidr
-  tags                = var.tags
+
+  # APIM Subnet (optional)
+  enable_apim_subnet = var.enable_apim
+  apim_subnet_cidr   = var.apim_subnet_cidr
+
+  tags = var.tags
 }
 
 # AKS Module
@@ -115,4 +120,34 @@ module "argocd" {
   enable_ha     = var.argocd_enable_ha
 
   depends_on = [module.aks]
+}
+
+# Azure API Management Module (optional)
+# Infrastructure only - API configs managed by ASO via ArgoCD
+module "apim" {
+  source = "./modules/apim"
+  count  = var.enable_apim ? 1 : 0
+
+  name_prefix         = local.name_prefix
+  location            = var.location
+  resource_group_name = module.resource_group.name
+
+  # Publisher info
+  publisher_name  = var.apim_publisher_name
+  publisher_email = var.apim_publisher_email
+
+  # SKU (Developer for POC, Standard/Premium for production)
+  sku_name = var.apim_sku_name
+
+  # VNet Integration
+  virtual_network_type = var.apim_virtual_network_type
+  subnet_id            = module.network.apim_subnet_id
+
+  tags = var.tags
+
+  depends_on = [module.network, module.aks]
+
+  # Note: API configurations (APIs, operations, policies) are now managed by
+  # Azure Service Operator (ASO) via ArgoCD for GitOps pattern.
+  # See: kubernetes/10-apim-api-config.yaml
 }

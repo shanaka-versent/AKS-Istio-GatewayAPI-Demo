@@ -1,10 +1,13 @@
 # ArgoCD Application - Health Responder
 # @author Shanaka Jayasundera - shanakaj@gmail.com
+# Sync Wave 7: Applications after Gateway and HTTPRoutes
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: health-responder
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

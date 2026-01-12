@@ -1,30 +1,31 @@
-# ArgoCD Application - Sample App 1
+# ArgoCD Application - APIM API Configuration (via ASO)
 # @author Shanaka Jayasundera - shanakaj@gmail.com
-# Sync Wave 7: Applications after Gateway and HTTPRoutes
+#
+# Sync Wave 9: After services are deployed (wave 7)
+# Manages APIM API definitions via Azure Service Operator CRDs
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sample-app-1
+  name: apim-api-config
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-wave: "9"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
     repoURL: https://github.com/shanaka-versent/shanaka-aks-poc.git
-    targetRevision: HEAD  # Automatically follows default branch
+    targetRevision: HEAD
     path: kubernetes
     directory:
-      include: "03-sample-app-1.yaml"
+      include: "10-apim-api-config.yaml"
   destination:
     server: https://kubernetes.default.svc
-    namespace: sample-apps
+    namespace: api-services
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-      - CreateNamespace=false
-      - ApplyOutOfSyncOnly=true
+      - CreateNamespace=true

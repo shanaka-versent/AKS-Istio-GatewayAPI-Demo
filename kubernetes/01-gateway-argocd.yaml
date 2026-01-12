@@ -1,0 +1,80 @@
+# MTKC POC - Kubernetes Gateway API - Gateway Resource (ArgoCD-compatible)
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+#
+# This version uses ClusterIP Gateway + explicit Internal LoadBalancer Service
+# to enable declarative externalTrafficPolicy: Local (Fix 2)
+#
+# Why this approach?
+# - When Istio auto-creates the service, externalTrafficPolicy defaults to "Cluster"
+# - Fix 2 requires "Local" for Azure App Gateway + ILB to work together
+# - By declaring the service explicitly, we can set externalTrafficPolicy: Local
+# - This makes the configuration fully declarative and GitOps-compatible
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: mtkc-gateway
+  namespace: istio-ingress
+  annotations:
+    # Force ClusterIP instead of auto-created LoadBalancer
+    networking.istio.io/service-type: ClusterIP
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  gatewayClassName: istio
+
+  listeners:
+    # HTTP Listener (port 80)
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTPS Listener (port 443) - End-to-End TLS
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: istio-gateway-tls
+            namespace: istio-ingress
+      allowedRoutes:
+        namespaces:
+          from: All
+
+---
+# Explicit Internal LoadBalancer Service with Fix 2 (externalTrafficPolicy: Local)
+# This replaces the auto-created mtkc-gateway-istio service
+apiVersion: v1
+kind: Service
+metadata:
+  name: mtkc-gateway-istio
+  namespace: istio-ingress
+  annotations:
+    # CRITICAL: Makes the LoadBalancer INTERNAL (Azure-specific)
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    gateway.networking.k8s.io/gateway-name: mtkc-gateway
+    istio.io/gateway-name: mtkc-gateway
+spec:
+  type: LoadBalancer
+  # CRITICAL FIX 2: externalTrafficPolicy: Local
+  # Required for Azure ILB to work with App Gateway (DSR/Floating IP)
+  # Without this, requests timeout with 502 errors due to SNAT issues
+  externalTrafficPolicy: Local
+  selector:
+    istio.io/gateway-name: mtkc-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: 443
+      protocol: TCP

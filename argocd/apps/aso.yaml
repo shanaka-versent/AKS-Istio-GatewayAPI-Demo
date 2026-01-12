@@ -1,0 +1,51 @@
+# ArgoCD Application - Azure Service Operator (ASO)
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+#
+# Sync Wave 3: ASO requires cert-manager (wave 2)
+# ASO manages Azure resources (APIM APIs) via Kubernetes CRDs
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: azure-service-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://raw.githubusercontent.com/Azure/azure-service-operator/main/v2/charts
+    chart: azure-service-operator
+    targetRevision: 2.6.0
+    helm:
+      values: |
+        # Azure Configuration
+        azureSubscriptionID: aee1508d-1d76-40bd-ba36-865237251d17
+        azureTenantID: 53641a88-bfb6-4163-94e8-ff501a431304
+        azureClientID: e610b8de-5b83-4610-b1e3-f04fb5fb4a46
+
+        # Authentication - Workload Identity (recommended for AKS)
+        useWorkloadIdentityAuth: true
+
+        # Only install APIM CRDs (reduces footprint)
+        crdPattern: "apimanagement.azure.com/*"
+
+        # Resource limits
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: azureserviceoperator-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,196 @@
+# MTKC POC - Sample API Service (Version-Agnostic)
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+#
+# Sample REST API - backend is VERSION-AGNOSTIC
+# APIM handles all versioning (e.g., /api/v1/users → /users)
+#
+# Traffic Flow:
+#   APIM (/api/v1/users) → rewrite → Internal LB → mtkc-gateway → /api/users → users-api
+#
+# API Versioning Strategy:
+#   - APIM exposes: /api/v1/users, /api/v2/users (versioned)
+#   - Backend receives: /api/users (version stripped, /api/ prefix kept)
+#   - All API routes under /api/* for clear separation from web routes
+#
+# Note: api-services namespace is created by 00-namespaces.yaml (ArgoCD: namespaces app)
+
+---
+# ReferenceGrant: Allow mtkc-gateway to route to api-services namespace
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-istio-ingress-to-api-services
+  namespace: api-services
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: api-services
+  to:
+    - group: ""
+      kind: Service
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users-api
+  namespace: api-services
+  labels:
+    app: users-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: users-api
+  template:
+    metadata:
+      labels:
+        app: users-api
+    spec:
+      containers:
+        - name: users-api
+          image: nginx:alpine
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: api-config
+              mountPath: /etc/nginx/conf.d
+            - name: api-data
+              mountPath: /usr/share/nginx/html
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: api-config
+          configMap:
+            name: users-api-config
+        - name: api-data
+          configMap:
+            name: users-api-data
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: users-api-config
+  namespace: api-services
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+
+        # VERSION-AGNOSTIC API Endpoints
+        # APIM handles versioning: /api/v1/users → /api/users
+        # Backend receives /api/* paths (version stripped, prefix kept)
+
+        # GET /api/users - List all users
+        location /api/users {
+            default_type application/json;
+            alias /usr/share/nginx/html/users.json;
+            add_header X-Service "users-api";
+        }
+
+        # GET /api/users/health - API health check
+        location /api/users/health {
+            default_type application/json;
+            return 200 '{"status": "healthy", "service": "users-api"}';
+        }
+
+        # Health check for K8s probes
+        location /health {
+            default_type application/json;
+            return 200 '{"status": "ok"}';
+        }
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: users-api-data
+  namespace: api-services
+data:
+  users.json: |
+    {
+      "users": [
+        {
+          "id": 1,
+          "name": "John Doe",
+          "email": "john.doe@example.com",
+          "role": "admin"
+        },
+        {
+          "id": 2,
+          "name": "Jane Smith",
+          "email": "jane.smith@example.com",
+          "role": "user"
+        },
+        {
+          "id": 3,
+          "name": "Bob Johnson",
+          "email": "bob.johnson@example.com",
+          "role": "user"
+        }
+      ],
+      "total": 3,
+      "page": 1,
+      "limit": 10
+    }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users-api
+  namespace: api-services
+  labels:
+    app: users-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: users-api
+
+---
+# HTTPRoute for Users API (Version-Agnostic)
+# APIM rewrites /api/v1/users → /api/users before sending to backend
+# All API routes under /api/* for clear separation from web routes
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: users-api-route
+  namespace: api-services
+spec:
+  parentRefs:
+    - name: mtkc-gateway
+      namespace: istio-ingress
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/users
+      backendRefs:
+        - name: users-api
+          port: 8080

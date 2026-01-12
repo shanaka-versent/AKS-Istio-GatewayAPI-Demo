@@ -1,13 +1,13 @@
-# ArgoCD Application - Sample App 1
+# ArgoCD Application - ReferenceGrants
 # @author Shanaka Jayasundera - shanakaj@gmail.com
-# Sync Wave 7: Applications after Gateway and HTTPRoutes
+# Sync Wave 6: ReferenceGrants needed before HTTPRoutes can reference cross-namespace backends
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sample-app-1
+  name: reference-grants
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-wave: "6"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -17,14 +17,13 @@ spec:
     targetRevision: HEAD  # Automatically follows default branch
     path: kubernetes
     directory:
-      include: "03-sample-app-1.yaml"
+      include: "06-reference-grants.yaml"
   destination:
     server: https://kubernetes.default.svc
-    namespace: sample-apps
+    namespace: default  # ReferenceGrants are created in target namespaces
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-      - CreateNamespace=false
       - ApplyOutOfSyncOnly=true

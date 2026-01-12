@@ -40,15 +40,16 @@ fi
 echo "    Internal LB IP: $INTERNAL_LB_IP"
 
 # Verify externalTrafficPolicy is Local (required for Azure ILB with App Gateway)
+# NOTE: This is set declaratively in kubernetes/01-gateway-argocd.yaml (managed by ArgoCD)
 echo "[2/4] Verifying externalTrafficPolicy..."
 TRAFFIC_POLICY=$(kubectl get svc mtkc-gateway-istio -n istio-ingress -o jsonpath='{.spec.externalTrafficPolicy}')
 if [ "$TRAFFIC_POLICY" != "Local" ]; then
-    echo "    Current: '$TRAFFIC_POLICY', required: 'Local'"
-    echo "    Patching service..."
-    kubectl patch svc mtkc-gateway-istio -n istio-ingress -p '{"spec":{"externalTrafficPolicy":"Local"}}'
-    echo "    Done."
+    echo "    WARNING: Current: '$TRAFFIC_POLICY', expected: 'Local'"
+    echo "    This should be set declaratively via ArgoCD (kubernetes/01-gateway-argocd.yaml)"
+    echo "    Please ensure ArgoCD has synced the gateway application."
+    exit 1
 else
-    echo "    Already set to 'Local' (correct)"
+    echo "    Already set to 'Local' (correct - managed by ArgoCD)"
 fi
 
 # Update App Gateway backend pool

@@ -1,13 +1,13 @@
-# ArgoCD Application - Sample App 1
+# ArgoCD Application - Namespaces
 # @author Shanaka Jayasundera - shanakaj@gmail.com
-# Sync Wave 7: Applications after Gateway and HTTPRoutes
+# Sync Wave 1: Namespaces after Istio is ready (for istio labels to work)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sample-app-1
+  name: namespaces
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -17,14 +17,13 @@ spec:
     targetRevision: HEAD  # Automatically follows default branch
     path: kubernetes
     directory:
-      include: "03-sample-app-1.yaml"
+      include: "00-namespaces.yaml"
   destination:
     server: https://kubernetes.default.svc
-    namespace: sample-apps
+    namespace: default  # Namespaces are cluster-scoped
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-      - CreateNamespace=false
       - ApplyOutOfSyncOnly=true

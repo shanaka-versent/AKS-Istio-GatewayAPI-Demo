@@ -1,0 +1,40 @@
+# ArgoCD Application - Ztunnel (Zero-Trust Tunnel)
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+#
+# Sync Wave 0: Core component for Ambient Mesh
+# Provides L4 mTLS between workloads without sidecars
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ztunnel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: ztunnel
+    targetRevision: 1.24.0
+    helm:
+      values: |
+        # Ztunnel configuration for Ambient Mesh
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

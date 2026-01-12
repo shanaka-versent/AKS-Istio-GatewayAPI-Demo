@@ -1,0 +1,59 @@
+# ArgoCD Root Application (App of Apps Pattern)
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+#
+# This is the parent application that manages all child applications.
+# Deploy this single application to bootstrap the entire stack via GitOps.
+#
+# Sync Wave Order:
+#   Wave -1: Istio Base (CRDs)
+#   Wave  0: Istiod + Istio CNI + Ztunnel (Ambient Mesh control plane)
+#   Wave  1: Namespaces (with istio.io/dataplane-mode: ambient labels)
+#   Wave  2: cert-manager (required by ASO)
+#   Wave  3: Azure Service Operator (ASO) - manages APIM API config
+#   Wave  5: Gateway + LoadBalancer Service
+#   Wave  6: ReferenceGrants + HTTPRoutes
+#   Wave  7: Applications (health-responder, sample-api, sample-app-1, sample-app-2)
+#   Wave  8: sample-api-v2 (if parallel versions needed)
+#   Wave  9: APIM API Configuration (via ASO CRDs)
+#
+# Prerequisites (Terraform - infrastructure only):
+#   1. AKS Cluster deployed
+#   2. Azure Application Gateway deployed
+#   3. Azure APIM instance deployed (infrastructure only)
+#   4. ArgoCD installed in cluster
+#
+# Deploy with:
+#   kubectl apply -f argocd/root-app.yaml
+#
+# After deployment, ArgoCD will:
+#   1. Install Istio Ambient Mesh
+#   2. Create namespaces with Istio labels
+#   3. Install cert-manager and ASO
+#   4. Deploy Gateway API resources
+#   5. Deploy applications
+#   6. Configure APIM APIs via ASO
+#
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mtkc-poc-root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/shanaka-versent/shanaka-aks-poc.git
+    targetRevision: HEAD  # Automatically follows default branch
+    path: argocd/apps
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ApplyOutOfSyncOnly=true

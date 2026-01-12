@@ -1,0 +1,38 @@
+# ArgoCD Application - Kubernetes Gateway API Gateway
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+# Sync Wave 5: Gateway after namespaces and Istio (Istio installed separately)
+#
+# IMPORTANT: This uses 01-gateway-argocd.yaml which includes:
+# - Gateway with ClusterIP (annotation: networking.istio.io/service-type: ClusterIP)
+# - Explicit LoadBalancer Service with externalTrafficPolicy: Local (Fix 2)
+#
+# Prerequisites:
+# - Istio Ambient Mesh must be installed (via scripts/02-install-istio-ambient.sh)
+# - TLS secret must exist (via scripts/create-tls-secrets.sh)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/shanaka-versent/shanaka-aks-poc.git
+    targetRevision: HEAD  # Automatically follows default branch
+    path: kubernetes
+    directory:
+      include: "01-gateway-argocd.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-ingress
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true

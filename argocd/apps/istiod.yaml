@@ -1,0 +1,56 @@
+# ArgoCD Application - Istiod (Control Plane)
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+#
+# Sync Wave 0: Istio control plane - depends on istio-base CRDs (wave -1)
+# Configures istiod for Ambient Mesh mode
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istiod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: istiod
+    targetRevision: 1.24.0
+    helm:
+      values: |
+        # Ambient Mesh Profile
+        profile: ambient
+
+        pilot:
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+        # Enable ambient mesh
+        meshConfig:
+          defaultConfig:
+            proxyMetadata:
+              ISTIO_META_DNS_CAPTURE: "true"
+              ISTIO_META_DNS_AUTO_ALLOCATE: "true"
+
+        # Global settings
+        global:
+          # Use distroless images for security
+          tag: 1.24.0
+          hub: docker.io/istio
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

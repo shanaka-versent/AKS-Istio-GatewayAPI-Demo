@@ -101,3 +101,33 @@ output "argocd_port_forward_command" {
   description = "Command to port-forward to ArgoCD server"
   value       = var.enable_argocd ? module.argocd[0].port_forward_command : "ArgoCD not enabled. Set enable_argocd = true"
 }
+
+# Azure API Management Outputs
+output "apim_enabled" {
+  description = "Whether Azure APIM is enabled"
+  value       = var.enable_apim
+}
+
+output "apim_name" {
+  description = "Azure APIM instance name"
+  value       = var.enable_apim ? module.apim[0].apim_name : null
+}
+
+output "apim_gateway_url" {
+  description = "Azure APIM Gateway URL"
+  value       = var.enable_apim ? module.apim[0].apim_gateway_url : null
+}
+
+output "apim_private_ip" {
+  description = "Azure APIM Private IP (when VNet integrated)"
+  value       = var.enable_apim ? module.apim[0].apim_private_ip_addresses : null
+}
+
+output "apim_portal_url" {
+  description = "Azure APIM Developer Portal URL"
+  value       = var.enable_apim ? module.apim[0].apim_portal_url : null
+}
+
+# Note: API configurations (APIs, operations, policies) are now managed by
+# Azure Service Operator (ASO) via ArgoCD for GitOps pattern.
+# See: kubernetes/10-apim-api-config.yaml

@@ -31,6 +31,18 @@ variable "appgw_subnet_cidr" {
   type        = string
 }
 
+variable "apim_subnet_cidr" {
+  description = "Azure API Management subnet CIDR (optional)"
+  type        = string
+  default     = ""
+}
+
+variable "enable_apim_subnet" {
+  description = "Enable APIM subnet creation"
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Tags for resources"
   type        = map(string)

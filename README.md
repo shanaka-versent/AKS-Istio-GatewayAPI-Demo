@@ -8,28 +8,149 @@ Kubernetes Gateway API provides a superior approach to multi-tenancy compared to
 
 - **Kubernetes Gateway API** (NOT classic Ingress)
 - **Istio Ambient Mesh** (NOT sidecar mode)
-- **Azure Application Gateway v2**
-- **Terraform** for all Azure infrastructure
+- **Azure Application Gateway v2** (Web Traffic)
+- **Azure API Management** (API Traffic)
+- **ArgoCD** with **Sync Waves** (GitOps for all K8s resources)
+- **Azure Service Operator (ASO)** (Manages APIM APIs via K8s CRDs)
+- **Terraform** for Azure infrastructure only
 - **End-to-End TLS** with self-signed certificates
 
+## GitOps Architecture
+
+Everything on AKS is managed via ArgoCD with Sync Waves for proper dependency ordering:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       TERRAFORM (Infrastructure Only)                        │
+│  - AKS Cluster, VNet, Subnets, NSGs                                         │
+│  - Azure Application Gateway                                                 │
+│  - Azure API Management (instance only, not API configs)                    │
+│  - ArgoCD bootstrap                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          ARGOCD (GitOps)                                     │
+│                                                                              │
+│  Sync Wave Order:                                                            │
+│    Wave -1: Istio Base (CRDs)                                               │
+│    Wave  0: Istiod + Istio CNI + Ztunnel (Ambient Mesh)                     │
+│    Wave  1: Namespaces (with istio.io/dataplane-mode: ambient)              │
+│    Wave  2: cert-manager                                                     │
+│    Wave  3: Azure Service Operator (ASO)                                    │
+│    Wave  5: Gateway + LoadBalancer Service                                  │
+│    Wave  6: ReferenceGrants + HTTPRoutes                                    │
+│    Wave  7: Applications (Web Apps, APIs)                                   │
+│    Wave  9: APIM API Configuration (via ASO CRDs)                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## POC Success Criteria
+
+### Web Traffic (App Gateway)
 
 | ID | Criteria | Validation |
 |----|----------|------------|
 | SC-1 | App Gateway health probes succeed | Backend Health = "Healthy" |
-| SC-2 | `/healthz/ready` returns HTTP 200 | `curl -k https://<IP>/healthz/ready` |
+| SC-2 | `/healthz/ready` returns HTTP 200 | `curl -k https://<APP_GW_IP>/healthz/ready` |
 | SC-3 | `/app1` routes to Sample App 1 | Returns "Hello from App 1" |
 | SC-4 | `/app2` routes to Sample App 2 | Returns "Hello from App 2" |
-| SC-5 | Istio Ambient Mesh active | Pods have 1 container (no sidecars) |
-| SC-6 | ztunnel running | `kubectl get pods -n istio-system -l app=ztunnel` |
-| SC-7 | Using Gateway API | `kubectl get gateway,httproute -A` |
-| SC-8 | End-to-End TLS working | `curl -k https://<IP>/app1` |
+| SC-5 | End-to-End TLS working | `curl -k https://<APP_GW_IP>/app1` |
+
+### API Traffic (APIM)
+
+| ID | Criteria | Validation |
+|----|----------|------------|
+| SC-6 | APIM `/api/v1/users` returns data | `curl https://apim-mtkc-poc.azure-api.net/api/v1/users` |
+| SC-7 | API versioning works | Both `/api/v1/users` and `/api/v2/users` accessible |
+| SC-8 | ASO manages APIM APIs | `kubectl get api -n apim-config` shows API resources |
+
+### Infrastructure (Istio + ArgoCD)
+
+| ID | Criteria | Validation |
+|----|----------|------------|
+| SC-9 | Istio Ambient Mesh active | Pods have 1 container (no sidecars) |
+| SC-10 | ztunnel running | `kubectl get pods -n istio-system -l app=ztunnel` |
+| SC-11 | Using Gateway API | `kubectl get gateway,httproute -A` |
+| SC-12 | ArgoCD apps synced | `kubectl get applications -n argocd` all "Synced" |
 
 ## Architecture
 
 ### High-Level Overview
 
-![Architecture Diagram](images/high-level-architecture.png)
+```mermaid
+flowchart TB
+    subgraph Internet["Internet"]
+        WebClient(["Web Browser"])
+        APIClient(["API Client<br/>(Mobile, Services)"])
+    end
+
+    subgraph Azure["Azure Cloud"]
+        subgraph PublicEntry["Public Entry Points"]
+            AppGW["Azure App Gateway<br/>(Web Traffic)<br/>Public IP"]
+            APIM["Azure APIM<br/>(API Traffic)<br/>apim-mtkc-poc.azure-api.net<br/>• Rate Limiting<br/>• API Versioning<br/>• Developer Portal"]
+        end
+
+        subgraph AKS["AKS Cluster (Istio Ambient Mesh)"]
+            ILB["Internal Load Balancer<br/>10.0.1.x"]
+
+            subgraph Gateway["Istio Gateway<br/>(K8s Gateway API)"]
+                GW["mtkc-gateway<br/>TLS Termination"]
+            end
+
+            subgraph Routes["HTTPRoutes"]
+                WebRoutes["/healthz/*<br/>/app1<br/>/app2"]
+                APIRoutes["/api/*<br/>(version-agnostic)"]
+            end
+
+            subgraph Apps["Applications"]
+                HealthApp["health-responder"]
+                WebApp1["sample-app-1"]
+                WebApp2["sample-app-2"]
+                UsersAPI["sample-api<br/>/api/v1/users"]
+            end
+        end
+    end
+
+    WebClient -->|"HTTPS"| AppGW
+    APIClient -->|"HTTPS<br/>/api/v1/users<br/>/api/v2/users"| APIM
+
+    AppGW -->|"HTTPS"| ILB
+    APIM -->|"HTTPS<br/>/api/*"| ILB
+
+    ILB --> GW
+    GW --> Routes
+    WebRoutes --> HealthApp
+    WebRoutes --> WebApp1
+    WebRoutes --> WebApp2
+    APIRoutes --> UsersAPI
+
+    classDef internet fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef public fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
+    classDef ilb fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef gateway fill:#e8eaf6,stroke:#466bb0,stroke-width:2px
+    classDef routes fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef apps fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+
+    class WebClient,APIClient internet
+    class AppGW,APIM public
+    class ILB ilb
+    class GW gateway
+    class WebRoutes,APIRoutes routes
+    class HealthApp,WebApp1,WebApp2,UsersAPI apps
+```
+
+#### Traffic Flow Summary
+
+| Traffic Type | Entry Point | Path | Backend |
+|--------------|-------------|------|---------|
+| **Web Traffic** | App Gateway | `/app1`, `/app2` | sample-app-1, sample-app-2 |
+| **Health Probes** | App Gateway | `/healthz/*` | health-responder |
+| **API Traffic (v1)** | APIM | `/api/v1/users` | sample-api |
+| **API Traffic (v2)** | APIM | `/api/v2/users` | sample-api (or sample-api-v2) |
+
+> **API Versioning:** APIM handles version routing externally. The backend receives requests on `/api/*` (version-agnostic). This allows API version changes without modifying K8s HTTPRoutes.
 
 ### End-to-End TLS Flow (Detailed)
 
@@ -88,17 +209,20 @@ flowchart TB
         HR1["health-route<br/>namespace: gateway-health<br/>path: /healthz/*"]
         HR2["app1-route<br/>namespace: sample-apps<br/>path: /app1"]
         HR3["app2-route<br/>namespace: sample-apps<br/>path: /app2"]
+        HR4["api-route<br/>namespace: api-services<br/>path: /api/*"]
     end
 
     subgraph Backends["Backend Services"]
         BE1["health-responder:8080"]
         BE2["sample-app-1:8080"]
         BE3["sample-app-2:8080"]
+        BE4["sample-api:8080"]
     end
 
     subgraph Grants["ReferenceGrants"]
         RG1["allow-istio-ingress-to-gateway-health<br/>From: istio-ingress → To: gateway-health"]
         RG2["allow-istio-ingress-to-sample-apps<br/>From: istio-ingress → To: sample-apps"]
+        RG3["allow-istio-ingress-to-api-services<br/>From: istio-ingress → To: api-services"]
     end
 
     GWClass --> Listener
@@ -107,6 +231,7 @@ flowchart TB
     HR1 --> BE1
     HR2 --> BE2
     HR3 --> BE3
+    HR4 --> BE4
     Routes -.->|"requires"| Grants
 
     classDef gateway fill:#e8eaf6,stroke:#466bb0,stroke-width:2px,color:#333
@@ -133,11 +258,12 @@ flowchart TB
 
 #### HTTPRoutes Summary
 
-| Route | Namespace | Path | Backend Service |
-|-------|-----------|------|-----------------|
-| `health-route` | gateway-health | `/healthz/*` | health-responder:8080 |
-| `app1-route` | sample-apps | `/app1` | sample-app-1:8080 |
-| `app2-route` | sample-apps | `/app2` | sample-app-2:8080 |
+| Route | Namespace | Path | Backend Service | Entry Point |
+|-------|-----------|------|-----------------|-------------|
+| `health-route` | gateway-health | `/healthz/*` | health-responder:8080 | App Gateway |
+| `app1-route` | sample-apps | `/app1` | sample-app-1:8080 | App Gateway |
+| `app2-route` | sample-apps | `/app2` | sample-app-2:8080 | App Gateway |
+| `api-route` | api-services | `/api/*` | sample-api:8080 | APIM |
 
 ### Request Flow Example: GET /app1
 
@@ -198,6 +324,8 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph Azure["AZURE"]
+        APIM["Azure APIM<br/>apim-mtkc-poc<br/>API Traffic Entry Point"]
+
         subgraph VNet["VNet: vnet-mtkc-poc (10.0.0.0/16)"]
             subgraph AppGWSubnet["Subnet: appgw-subnet (10.0.0.0/24)"]
                 AppGW["Application Gateway<br/>appgw-mtkc-poc<br/>Public IP: 68.218.110.49<br/>Private IP: 10.0.0.x<br/>NSG: Allow 80, 443"]
@@ -212,6 +340,7 @@ flowchart TB
                         HealthPod["gateway-health/<br/>health-responder"]
                         App1Pod["sample-apps/<br/>sample-app-1"]
                         App2Pod["sample-apps/<br/>sample-app-2"]
+                        APIPod["api-services/<br/>sample-api"]
                         ZtPod["istio-system/<br/>ztunnel (per node)"]
                     end
                 end
@@ -219,21 +348,26 @@ flowchart TB
         end
     end
 
-    Internet(["Internet"]) -->|"HTTPS:443"| AppGW
+    Internet(["Internet"]) -->|"Web Traffic<br/>HTTPS:443"| AppGW
+    Internet -->|"API Traffic<br/>HTTPS:443"| APIM
     AppGW -->|"HTTPS:443"| ILB
+    APIM -->|"HTTPS:443<br/>/api/*"| ILB
     ILB --> GWPod
     GWPod --> HealthPod
     GWPod --> App1Pod
     GWPod --> App2Pod
+    GWPod --> APIPod
     ZtPod -.->|"mTLS"| Pods
 
     classDef azure fill:#e6f2ff,stroke:#0078d4,stroke-width:2px,color:#333
+    classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#333
     classDef vnet fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#333
     classDef subnet fill:#e8f4fd,stroke:#1976d2,stroke-width:2px,color:#333
     classDef aks fill:#e8eaf6,stroke:#326ce5,stroke-width:2px,color:#333
     classDef pods fill:#f5f5f5,stroke:#757575,stroke-width:1px,color:#333
 
     class Azure azure
+    class APIM apim
     class VNet vnet
     class AppGWSubnet,AKSSubnet subnet
     class AKS aks
@@ -258,7 +392,6 @@ flowchart TB
 - Terraform >= 1.5.0
 - kubectl
 - kubelogin (required for Azure AD authentication with AKS)
-- istioctl (will be installed if missing)
 - openssl (for TLS certificate generation)
 
 **Install kubelogin (if not installed):**
@@ -270,23 +403,62 @@ brew install azure/kubelogin/kubelogin
 az aks install-cli
 ```
 
-### Deploy
+### Deploy (GitOps Approach)
 
 ```bash
-# 1. Deploy Azure infrastructure (generates TLS certificates)
-./scripts/01-deploy-terraform.sh
+# 1. Deploy Azure infrastructure (AKS, App Gateway, APIM, ArgoCD)
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your values
+terraform init
+terraform apply
 
-# 2. Install Istio Ambient Mesh
-./scripts/02-install-istio-ambient.sh
+# 2. Get AKS credentials
+az aks get-credentials --resource-group rg-mtkc-poc --name aks-mtkc-poc
+kubelogin convert-kubeconfig -l azurecli
 
-# 3. Deploy Kubernetes resources
-./scripts/03-deploy-kubernetes.sh
+# 3. Generate TLS certificates and create K8s secret (PRE-REQUISITE)
+#    This is the ONLY manual K8s resource - required before ArgoCD can deploy Gateway
+./scripts/generate-tls-certs.sh   # Creates certs in ./certs directory
+./scripts/create-tls-secrets.sh   # Creates istio-gateway-tls secret
 
-# 4. Update App Gateway backend
+# 4. Deploy ArgoCD Root Application (bootstraps everything via GitOps)
+kubectl apply -f argocd/root-app.yaml
+
+# 5. Wait for ArgoCD to sync all applications (check ArgoCD UI)
+kubectl get applications -n argocd -w
+
+# 6. Update App Gateway backend with Internal LB IP (reads from K8s, updates Azure)
 ./scripts/04-update-appgw-backend.sh
 
-# 5. Run validation tests
+# 7. Run validation tests
 ./tests/validate-poc.sh
+```
+
+> **Note on TLS Secret:** The TLS secret (`istio-gateway-tls`) must be created manually before ArgoCD can deploy the Gateway. This is because TLS certificates should not be stored in Git. For production, consider using:
+> - **cert-manager** with Let's Encrypt for automatic certificate management
+> - **Azure Key Vault** with CSI driver for secret injection
+> - **Sealed Secrets** for encrypted secrets in Git
+
+**What ArgoCD deploys automatically (in order):**
+1. Istio Ambient Mesh (base, istiod, CNI, ztunnel)
+2. Namespaces with Istio labels
+3. cert-manager and Azure Service Operator
+4. Gateway + HTTPRoutes
+5. Sample applications
+6. APIM API configurations (via ASO)
+
+### Access ArgoCD
+
+```bash
+# Port-forward to ArgoCD
+kubectl port-forward svc/argocd-server -n argocd 8080:80
+
+# Get admin password
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+
+# Open in browser
+open http://localhost:8080
 ```
 
 ### Cleanup
@@ -455,14 +627,21 @@ flowchart TB
 
 | File | Purpose |
 |------|---------|
-| [scripts/03-deploy-kubernetes.sh](scripts/03-deploy-kubernetes.sh) | Applies patch after Gateway service is created (line 61) |
-| [scripts/04-update-appgw-backend.sh](scripts/04-update-appgw-backend.sh) | Verifies/reapplies if needed before updating backend pool |
+| [kubernetes/01-gateway-argocd.yaml](kubernetes/01-gateway-argocd.yaml) | Declares Service with `externalTrafficPolicy: Local` (managed by ArgoCD) |
+| [scripts/04-update-appgw-backend.sh](scripts/04-update-appgw-backend.sh) | Verifies the setting before updating App Gateway backend pool |
 
-**The Fix (applied in scripts):**
-```bash
-# From scripts/03-deploy-kubernetes.sh (line 61)
-kubectl patch svc mtkc-gateway-istio -n istio-ingress \
-  -p '{"spec":{"externalTrafficPolicy":"Local"}}'
+**The Fix (declarative via ArgoCD):**
+```yaml
+# From kubernetes/01-gateway-argocd.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mtkc-gateway-istio
+  namespace: istio-ingress
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local  # CRITICAL: Prevents SNAT issues with Azure ILB
+  ...
 ```
 
 **Verification:**
@@ -577,26 +756,259 @@ kubectl get secret istio-gateway-tls -n istio-ingress
 
 ## Access URLs
 
-After successful deployment (use `-k` flag with curl for self-signed certificates):
+After successful deployment:
+
+### Web Traffic (via App Gateway)
+
+Use `-k` flag with curl for self-signed certificates:
 
 | Endpoint | URL |
 |----------|-----|
-| Health Check | `https://<IP>/healthz/ready` |
-| App 1 | `https://<IP>/app1` |
-| App 2 | `https://<IP>/app2` |
+| Health Check | `https://<APP_GW_IP>/healthz/ready` |
+| App 1 | `https://<APP_GW_IP>/app1` |
+| App 2 | `https://<APP_GW_IP>/app2` |
 
-Get the IP from Terraform output:
 ```bash
+# Get App Gateway IP
 cd terraform && terraform output appgw_public_ip
+
+# Test
+curl -k https://<APP_GW_IP>/app1
 ```
 
-**Note:** HTTP requests to port 80 are automatically redirected to HTTPS (301).
+### API Traffic (via APIM)
+
+| Endpoint | URL |
+|----------|-----|
+| Users API v1 | `https://apim-mtkc-poc.azure-api.net/api/v1/users` |
+| Users API v2 | `https://apim-mtkc-poc.azure-api.net/api/v2/users` |
+
+```bash
+# Get APIM Gateway URL
+cd terraform && terraform output apim_gateway_url
+
+# Test (no -k needed - APIM uses valid Azure certificate)
+curl https://apim-mtkc-poc.azure-api.net/api/v1/users
+```
+
+**Note:** HTTP requests to App Gateway port 80 are automatically redirected to HTTPS (301).
 
 ---
 
-## ArgoCD Integration (Optional)
+## Separating Web and API Traffic
 
-ArgoCD can be deployed using Terraform with the Helm provider. It is exposed via an **Azure Internal LoadBalancer** for security, and accessed via **port-forward**.
+This POC separates **Web Traffic** and **API Traffic** with different entry points while sharing the same Internal Load Balancer for backend routing.
+
+### URL Pattern
+
+| Traffic Type | Path Pattern | Example |
+|--------------|--------------|---------|
+| **Web Traffic** | Clean URLs (no prefix) | `/app1`, `/app2`, `/dashboard` |
+| **API Traffic** | `/api` prefix | `/api/v1/users`, `/api/v1/orders` |
+
+### Architecture: Single Gateway Pattern
+
+```mermaid
+flowchart TB
+    subgraph Internet["Internet"]
+        WebClient(["Web Browser"])
+        APIClient(["API Client<br/>(Mobile App, Service)"])
+    end
+
+    subgraph Azure["Azure Cloud"]
+        AppGW["Azure App Gateway<br/>(Public IP)<br/>Web Traffic"]
+        APIM["Kong / Azure APIM<br/>(+ WAF)<br/>API Traffic"]
+
+        subgraph AKS["AKS Cluster"]
+            ILB["Internal Load Balancer<br/>10.0.1.x<br/>(Shared)"]
+
+            subgraph Gateway["Istio Gateway (K8s Gateway API)"]
+                GW["mtkc-gateway"]
+            end
+
+            subgraph Routes["HTTPRoutes (Path-based)"]
+                WebRoutes["/app1, /app2<br/>/healthz/*"]
+                APIRoutes["/api/v1/users<br/>/api/v1/orders"]
+            end
+
+            subgraph Apps["Applications"]
+                WebApps["Web Apps<br/>(sample-app-1, sample-app-2)"]
+                APIs["API Services<br/>(users-api)"]
+            end
+        end
+    end
+
+    WebClient -->|"HTTPS"| AppGW
+    APIClient -->|"HTTPS"| APIM
+
+    AppGW -->|"HTTPS<br/>(istio-gw.crt)"| ILB
+    APIM -->|"HTTPS<br/>(istio-gw.crt)"| ILB
+
+    ILB --> GW
+    GW --> Routes
+    WebRoutes --> WebApps
+    APIRoutes --> APIs
+
+    classDef internet fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef azure fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
+    classDef ilb fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef gateway fill:#e8eaf6,stroke:#466bb0,stroke-width:2px
+    classDef routes fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef apps fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+
+    class WebClient,APIClient internet
+    class AppGW,APIM azure
+    class ILB ilb
+    class GW gateway
+    class WebRoutes,APIRoutes routes
+    class WebApps,APIs apps
+```
+
+### TLS Certificate Reuse
+
+**The same `istio-gw.crt` is used for both App Gateway and Kong/APIM:**
+
+| Entry Point | Backend TLS Cert | Trusted Root CA |
+|-------------|------------------|-----------------|
+| App Gateway → Internal LB | `istio-gw.crt` | `ca.crt` (configured in App Gateway) |
+| Kong/APIM → Internal LB | `istio-gw.crt` | `ca.crt` (upload to Kong/APIM) |
+
+Configure your API Gateway to trust the CA:
+
+**Kong:**
+```yaml
+# kong.conf
+upstream_ssl_trusted_certificate = /path/to/ca.crt
+upstream_ssl_verify = on
+```
+
+**Azure APIM:**
+1. Go to APIM → Backends → Add backend
+2. Set Gateway URL to Internal LB IP (same as App Gateway backend)
+3. Upload `ca.crt` as trusted root certificate
+
+### Sample API Service
+
+A sample Users API is included to demonstrate the `/api/*` pattern:
+
+| File | Purpose |
+|------|---------|
+| [kubernetes/08-sample-api.yaml](kubernetes/08-sample-api.yaml) | Users API service with `/api/v1/users` endpoint |
+
+### Deploy Sample API
+
+```bash
+# Deploy the sample API
+kubectl apply -f kubernetes/08-sample-api.yaml
+
+# Verify deployment
+kubectl get pods -n api-services
+kubectl get httproute -n api-services
+```
+
+### Test API Endpoint
+
+```bash
+# Via App Gateway (public)
+curl -k https://<APP_GATEWAY_IP>/api/v1/users
+
+# Expected response:
+{
+  "users": [
+    {"id": 1, "name": "John Doe", "email": "john.doe@example.com", "role": "admin"},
+    {"id": 2, "name": "Jane Smith", "email": "jane.smith@example.com", "role": "user"}
+  ],
+  "total": 3,
+  "page": 1
+}
+```
+
+### Azure API Management Integration
+
+Azure APIM is deployed via Terraform (infrastructure) with API configurations managed by **Azure Service Operator (ASO)** via ArgoCD (GitOps).
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  TERRAFORM (Infrastructure)          │  ARGOCD + ASO (API Config)      │
+│  ─────────────────────────────────   │  ─────────────────────────────  │
+│  • APIM Instance                     │  • API definitions              │
+│  • VNet Integration                  │  • Operations (GET, POST, etc)  │
+│  • Backend Pool                      │  • Policies (rate limit, auth)  │
+│  • Certificates                      │  • Products & Subscriptions     │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- API versioning and documentation
+- Rate limiting and throttling
+- Authentication (API keys, OAuth, JWT)
+- Developer portal
+- Analytics and monitoring
+
+**APIM Configuration Files:**
+
+| File | Purpose |
+|------|---------|
+| `terraform/modules/apim/` | APIM infrastructure (instance, VNet, backend) |
+| `kubernetes/10-apim-api-config.yaml` | ASO CRDs for API definitions |
+| `argocd/apps/apim-api-config.yaml` | ArgoCD app for API config (Wave 9) |
+
+**Test via APIM:**
+```bash
+# Get APIM Gateway URL
+cd terraform && terraform output apim_gateway_url
+
+# Test Users API v1 via APIM
+curl https://apim-mtkc-poc.azure-api.net/api/v1/users
+
+# Expected response:
+{
+  "users": [
+    {"id": 1, "name": "John Doe", "email": "john.doe@example.com"},
+    {"id": 2, "name": "Jane Smith", "email": "jane.smith@example.com"}
+  ]
+}
+```
+
+**Adding a New API Version:**
+
+With ASO, adding a new API version is a GitOps operation:
+
+```yaml
+# kubernetes/10-apim-api-config.yaml - Add new API version
+apiVersion: apimanagement.azure.com/v1api20230501preview
+kind: Api
+metadata:
+  name: users-api-v2
+  namespace: apim-config
+spec:
+  owner:
+    name: apim-mtkc-poc
+  azureName: users-api-v2
+  displayName: Users API v2
+  path: api/v2
+  protocols:
+    - https
+  serviceUrl: https://10.0.1.x/api  # Internal LB
+```
+
+Commit and push - ArgoCD syncs automatically.
+
+**APIM SKU Options:**
+
+| SKU | Cost/Month | Use Case |
+|-----|------------|----------|
+| Developer_1 | ~$50 | POC, Development |
+| Basic_1 | ~$150 | Small production |
+| Standard_1 | ~$700 | Production with SLA |
+| Premium_1 | ~$3000 | Enterprise, VNet integration |
+
+---
+
+## ArgoCD Integration
+
+ArgoCD is the **primary deployment method** for all Kubernetes resources in this POC. It is deployed via Terraform with the Helm provider, exposed via an **Azure Internal LoadBalancer** for security, and accessed via **port-forward**.
 
 ### Prerequisites for ArgoCD Deployment
 
@@ -673,16 +1085,64 @@ argocd login localhost:8080 --username admin --password $(terraform output -raw 
 
 ### Deploy Applications via ArgoCD
 
-Pre-configured ArgoCD Application manifests are available in the `argocd/apps/` directory:
+ArgoCD Application manifests are organized in the `argocd/` directory using the **App of Apps** pattern with **Sync Waves** for ordering:
 
 ```
-argocd/apps/
-├── sample-app-1.yaml      # Manages kubernetes/03-sample-app-1.yaml
-├── sample-app-2.yaml      # Manages kubernetes/04-sample-app-2.yaml
-└── health-responder.yaml  # Manages kubernetes/02-health-responder.yaml
+argocd/
+├── root-app.yaml              # Parent app (deploy this to bootstrap everything)
+└── apps/
+    ├── istio-base.yaml        # Wave -1: Istio CRDs
+    ├── istiod.yaml            # Wave  0: Istio control plane
+    ├── istio-cni.yaml         # Wave  0: Istio CNI for ambient
+    ├── ztunnel.yaml           # Wave  0: Zero-trust tunnel
+    ├── namespaces.yaml        # Wave  1: Creates namespaces with Istio labels
+    ├── cert-manager.yaml      # Wave  2: Certificate manager
+    ├── aso.yaml               # Wave  3: Azure Service Operator
+    ├── gateway.yaml           # Wave  5: Gateway + LoadBalancer (with Fix 2)
+    ├── reference-grants.yaml  # Wave  6: Cross-namespace permissions
+    ├── httproutes.yaml        # Wave  6: Routing rules
+    ├── health-responder.yaml  # Wave  7: Health check responder (Fix 1)
+    ├── sample-app-1.yaml      # Wave  7: Sample App 1 (Web)
+    ├── sample-app-2.yaml      # Wave  7: Sample App 2 (Web)
+    ├── sample-api.yaml        # Wave  7: Sample API (/api/users)
+    └── apim-api-config.yaml   # Wave  9: APIM API configs via ASO
 ```
 
-**Deploy all applications:**
+#### Sync Wave Order
+
+| Wave | Application | Purpose |
+|------|-------------|---------|
+| -1 | istio-base | Istio CRDs (must exist before other Istio components) |
+| 0 | istiod | Istio control plane (Ambient profile) |
+| 0 | istio-cni | Istio CNI for ambient mode (no sidecars) |
+| 0 | ztunnel | Zero-trust tunnel for L4 mTLS |
+| 1 | namespaces | Create namespaces with `istio.io/dataplane-mode: ambient` labels |
+| 2 | cert-manager | Certificate manager (required by ASO) |
+| 3 | aso | Azure Service Operator (manages APIM APIs) |
+| 5 | gateway | Gateway + explicit Service with `externalTrafficPolicy: Local` (Fix 2) |
+| 6 | reference-grants | ReferenceGrants for cross-namespace routing |
+| 6 | httproutes | HTTPRoutes including `/healthz/*` (Fix 1) |
+| 7 | health-responder | Health check responder pod |
+| 7 | sample-app-1 | Sample web application 1 (`/app1`) |
+| 7 | sample-app-2 | Sample web application 2 (`/app2`) |
+| 7 | sample-api | Sample Users API (`/api/users`) |
+| 9 | apim-api-config | APIM API configurations via ASO CRDs |
+
+> **Full GitOps:** Everything including Istio is now managed by ArgoCD. No manual scripts required.
+> **Fix 2 Handled Declaratively:** The Gateway app uses `01-gateway-argocd.yaml` which creates an explicit LoadBalancer Service with `externalTrafficPolicy: Local` built-in. No manual patching required.
+
+#### Option 1: Deploy via Root App (Recommended)
+
+Deploy the root app to bootstrap everything with proper ordering:
+
+```bash
+kubectl apply -f argocd/root-app.yaml
+```
+
+#### Option 2: Deploy Individual Apps
+
+Deploy apps individually (sync waves still apply):
+
 ```bash
 kubectl apply -f argocd/apps/
 ```
@@ -694,13 +1154,26 @@ kubectl get applications -n argocd
 
 **Expected output:**
 ```
-NAME               SYNC STATUS   HEALTH STATUS
-health-responder   Synced        Healthy
-sample-app-1       Synced        Healthy
-sample-app-2       Synced        Healthy
+NAME                     SYNC STATUS   HEALTH STATUS
+mtkc-poc-root            Synced        Healthy
+istio-base               Synced        Healthy
+istiod                   Synced        Healthy
+istio-cni                Synced        Healthy
+ztunnel                  Synced        Healthy
+namespaces               Synced        Healthy
+cert-manager             Synced        Healthy
+azure-service-operator   Synced        Healthy
+gateway                  Synced        Healthy
+reference-grants         Synced        Healthy
+httproutes               Synced        Healthy
+health-responder         Synced        Healthy
+sample-app-1             Synced        Healthy
+sample-app-2             Synced        Healthy
+sample-api               Synced        Healthy
+apim-api-config          Synced        Healthy
 ```
 
-> **Note:** The applications use `targetRevision: HEAD` which automatically follows the default branch. No changes needed after merging feature branches to main.
+> **Note:** All applications use `targetRevision: HEAD` which automatically follows the default branch. No changes needed after merging feature branches to main.
 
 ### Create a Custom Application (CLI)
 

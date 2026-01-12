@@ -1,0 +1,201 @@
+# MTKC POC - Sample API v2 Service (Parallel Version Deployment)
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+#
+# Scenario 2: Parallel Versions - Run v1 and v2 simultaneously
+# Use this when v2 has different code/behavior than v1
+#
+# Traffic Flow:
+#   APIM (/api/v2/users) → rewrite → Internal LB → mtkc-gateway → /api/users-v2 → users-api-v2
+#
+# Note: For Scenario 1 (same backend), you don't need this file.
+#       Just enable v2 in APIM and it routes to the same users-api deployment.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users-api-v2
+  namespace: api-services
+  labels:
+    app: users-api-v2
+    version: v2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: users-api-v2
+  template:
+    metadata:
+      labels:
+        app: users-api-v2
+        version: v2
+    spec:
+      containers:
+        - name: users-api-v2
+          image: nginx:alpine
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: api-config
+              mountPath: /etc/nginx/conf.d
+            - name: api-data
+              mountPath: /usr/share/nginx/html
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: api-config
+          configMap:
+            name: users-api-v2-config
+        - name: api-data
+          configMap:
+            name: users-api-v2-data
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: users-api-v2-config
+  namespace: api-services
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+
+        # V2 API Endpoints
+        # APIM rewrites /api/v2/users → /api/users-v2
+        # Note the -v2 suffix to distinguish from v1 routes
+
+        # GET /api/users-v2 - List all users (v2 format with extended fields)
+        location /api/users-v2 {
+            default_type application/json;
+            alias /usr/share/nginx/html/users.json;
+            add_header X-Service "users-api-v2";
+            add_header X-API-Version "v2";
+        }
+
+        # GET /api/users-v2/health - API health check
+        location /api/users-v2/health {
+            default_type application/json;
+            return 200 '{"status": "healthy", "service": "users-api-v2", "version": "v2"}';
+        }
+
+        # Health check for K8s probes
+        location /health {
+            default_type application/json;
+            return 200 '{"status": "ok", "version": "v2"}';
+        }
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: users-api-v2-data
+  namespace: api-services
+data:
+  users.json: |
+    {
+      "apiVersion": "v2",
+      "users": [
+        {
+          "id": "usr_001",
+          "firstName": "John",
+          "lastName": "Doe",
+          "email": "john.doe@example.com",
+          "role": "admin",
+          "metadata": {
+            "createdAt": "2024-01-15T10:30:00Z",
+            "lastLogin": "2024-12-01T14:22:00Z",
+            "isActive": true
+          }
+        },
+        {
+          "id": "usr_002",
+          "firstName": "Jane",
+          "lastName": "Smith",
+          "email": "jane.smith@example.com",
+          "role": "user",
+          "metadata": {
+            "createdAt": "2024-02-20T09:15:00Z",
+            "lastLogin": "2024-11-28T16:45:00Z",
+            "isActive": true
+          }
+        },
+        {
+          "id": "usr_003",
+          "firstName": "Bob",
+          "lastName": "Johnson",
+          "email": "bob.johnson@example.com",
+          "role": "user",
+          "metadata": {
+            "createdAt": "2024-03-10T11:00:00Z",
+            "lastLogin": "2024-10-15T08:30:00Z",
+            "isActive": false
+          }
+        }
+      ],
+      "pagination": {
+        "total": 3,
+        "page": 1,
+        "limit": 10,
+        "hasMore": false
+      }
+    }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users-api-v2
+  namespace: api-services
+  labels:
+    app: users-api-v2
+    version: v2
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: users-api-v2
+
+---
+# HTTPRoute for Users API v2
+# Routes /api/users-v2 to the v2 deployment
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: users-api-v2-route
+  namespace: api-services
+spec:
+  parentRefs:
+    - name: mtkc-gateway
+      namespace: istio-ingress
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/users-v2
+      backendRefs:
+        - name: users-api-v2
+          port: 8080

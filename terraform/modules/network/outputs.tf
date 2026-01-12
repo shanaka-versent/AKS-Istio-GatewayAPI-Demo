@@ -30,3 +30,8 @@ output "appgw_nsg_id" {
   description = "App Gateway NSG ID"
   value       = azurerm_network_security_group.appgw.id
 }
+
+output "apim_subnet_id" {
+  description = "APIM Subnet ID"
+  value       = var.enable_apim_subnet ? azurerm_subnet.apim[0].id : null
+}

@@ -25,3 +25,11 @@ metadata:
   name: sample-apps
   labels:
     istio.io/dataplane-mode: ambient
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-services
+  labels:
+    istio.io/dataplane-mode: ambient

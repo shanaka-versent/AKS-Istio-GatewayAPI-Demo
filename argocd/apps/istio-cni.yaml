@@ -1,0 +1,49 @@
+# ArgoCD Application - Istio CNI (Container Network Interface)
+# @author Shanaka Jayasundera - shanakaj@gmail.com
+#
+# Sync Wave 0: Required for Ambient Mesh - runs as DaemonSet on each node
+# Handles network redirection without sidecars
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-cni
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: cni
+    targetRevision: 1.24.0
+    helm:
+      values: |
+        # Ambient mode CNI configuration
+        profile: ambient
+
+        cni:
+          # Run as DaemonSet
+          enabled: true
+          # Ambient mode specific settings
+          ambient:
+            enabled: true
+          # Resource limits
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

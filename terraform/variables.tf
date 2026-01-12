@@ -223,6 +223,54 @@ variable "argocd_enable_ha" {
   default     = false
 }
 
+# Azure API Management Configuration
+variable "enable_apim" {
+  description = "Enable Azure API Management deployment"
+  type        = bool
+  default     = false
+}
+
+variable "apim_subnet_cidr" {
+  description = "APIM subnet CIDR"
+  type        = string
+  default     = "10.0.3.0/24"
+}
+
+variable "apim_publisher_name" {
+  description = "APIM publisher name (organization name)"
+  type        = string
+  default     = "MTKC POC"
+}
+
+variable "apim_publisher_email" {
+  description = "APIM publisher email"
+  type        = string
+  default     = "admin@example.com"
+}
+
+variable "apim_sku_name" {
+  description = "APIM SKU (Developer_1, Basic_1, Standard_1, Premium_1)"
+  type        = string
+  default     = "Developer_1"
+  # Developer_1: ~$50/month, good for POC
+  # Basic_1: ~$150/month
+  # Standard_1: ~$700/month
+  # Premium_1: ~$3000/month (VNet integration)
+}
+
+variable "apim_virtual_network_type" {
+  description = "APIM VNet integration type (None, External, Internal)"
+  type        = string
+  default     = "External"
+  # Internal: Only accessible within VNet
+  # External: Has public IP but can access VNet resources
+  # None: No VNet integration
+}
+
+# Note: API configurations (APIs, operations, policies) are now managed by
+# Azure Service Operator (ASO) via ArgoCD for GitOps pattern.
+# See: kubernetes/10-apim-api-config.yaml
+
 # Tags
 variable "tags" {
   description = "Tags for all resources"
