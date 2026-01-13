@@ -95,7 +95,7 @@ flowchart TB
                 AppGW_Backend["Backend Pool: 10.0.1.x"]
             end
             subgraph APIMBox["Azure APIM (API Traffic)"]
-                APIM_URL["Public URL: apim-mtkc-poc.azure-api.net"]
+                APIM_URL["Public DNS: api.example.com"]
                 APIM_Listener["HTTPS Listener :443"]
                 APIM_TLS["TLS Termination"]
                 APIM_Backend["Backend Pool: 10.0.1.x"]
