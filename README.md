@@ -88,8 +88,19 @@ flowchart TB
 
     subgraph Azure["Azure Cloud"]
         subgraph PublicEntry["Public Entry Points (TLS Termination #1)"]
-            AppGW["Azure App Gateway<br/>(Web Traffic)<br/>TLS Termination<br/>Public IP"]
-            APIM["Azure APIM<br/>(API Traffic)<br/>TLS Termination<br/>apim-mtkc-poc.azure-api.net<br/>• Rate Limiting<br/>• API Versioning<br/>• Developer Portal"]
+            subgraph AppGWBox["Azure App Gateway (Web Traffic)"]
+                AppGW_IP["Public IP: 68.218.110.49"]
+                AppGW_Listener["HTTPS Listener :443"]
+                AppGW_TLS["TLS Termination"]
+                AppGW_Backend["Backend Pool: 10.0.1.x"]
+            end
+            subgraph APIMBox["Azure APIM (API Traffic)"]
+                APIM_URL["Gateway: apim-mtkc-poc.azure-api.net"]
+                APIM_Listener["HTTPS Listener :443"]
+                APIM_TLS["TLS Termination"]
+                APIM_Backend["Backend: 10.0.1.x"]
+                APIM_Features["• Rate Limiting  • API Versioning<br/>• Developer Portal  • Analytics"]
+            end
         end
 
         subgraph AKS["AKS Cluster (Istio Ambient Mesh)"]
@@ -107,16 +118,16 @@ flowchart TB
                 HealthApp["health-responder"]
                 WebApp1["sample-app-1"]
                 WebApp2["sample-app-2"]
-                UsersAPI["sample-api"]
+                UsersAPI["users-api"]
             end
         end
     end
 
-    WebClient -->|"HTTPS"| AppGW
-    APIClient -->|"HTTPS<br/>/api/v1/users<br/>/api/v2/users"| APIM
+    WebClient -->|"HTTPS"| AppGW_IP
+    APIClient -->|"HTTPS<br/>/api/v1/users<br/>/api/v2/users"| APIM_URL
 
-    AppGW -->|"HTTPS<br/>(re-encrypt)"| ILB
-    APIM -->|"HTTPS<br/>(re-encrypt)"| ILB
+    AppGW_Backend -->|"HTTPS<br/>(re-encrypt)"| ILB
+    APIM_Backend -->|"HTTPS<br/>(re-encrypt)"| ILB
 
     ILB -->|"HTTPS"| GW
     GW -->|"HTTP"| Routes
@@ -126,17 +137,19 @@ flowchart TB
     AllRoutes --> UsersAPI
 
     classDef internet fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    classDef public fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
+    classDef appgw fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
+    classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef ilb fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef gateway fill:#e8eaf6,stroke:#466bb0,stroke-width:2px
     classDef routes fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef apps fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 
     class WebClient,APIClient internet
-    class AppGW,APIM public
+    class AppGWBox,AppGW_IP,AppGW_Listener,AppGW_TLS,AppGW_Backend appgw
+    class APIMBox,APIM_URL,APIM_Listener,APIM_TLS,APIM_Backend,APIM_Features apim
     class ILB ilb
     class GW gateway
-    class WebRoutes,APIRoutes routes
+    class AllRoutes routes
     class HealthApp,WebApp1,WebApp2,UsersAPI apps
 ```
 
