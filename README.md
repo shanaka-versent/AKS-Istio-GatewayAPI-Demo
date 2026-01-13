@@ -190,18 +190,37 @@ sequenceDiagram
 
 | TLS Termination | Certificate | CN | Signed By | Purpose |
 |-----------------|-------------|-----|-----------|---------|
-| **#1 App Gateway** | `appgw.pfx` | mtkc-poc.local | MTKC-POC-CA | Frontend HTTPS listener |
-| **#2 Istio Gateway** | `istio-gw.crt` | mtkc-gateway.istio-ingress.svc.cluster.local | MTKC-POC-CA | Backend TLS from App Gateway |
+| **#1a App Gateway** | `appgw.pfx` | mtkc-poc.local | MTKC-POC-CA | Frontend HTTPS listener (Web) |
+| **#1b APIM** | Azure-managed or custom | api.example.com | Public CA or custom | Frontend HTTPS listener (API) |
+| **#2 Istio Gateway** | `istio-gw.crt` | mtkc-gateway.istio-ingress.svc.cluster.local | MTKC-POC-CA | Backend TLS (shared) |
 
-#### App Gateway Backend Settings
+> **Shared Backend Certificate:** Both App Gateway and APIM connect to the same Istio Gateway backend using the same TLS certificate (`istio-gw.crt`). Both must trust the same CA (`ca.crt`) to validate the backend certificate.
+
+#### Backend TLS Settings (Shared by App Gateway & APIM)
+
+| Setting | Value | Notes |
+|---------|-------|-------|
+| Protocol | HTTPS | Re-encryption to backend |
+| Port | 443 | Istio Gateway HTTPS port |
+| Host Header | `mtkc-gateway.istio-ingress.svc.cluster.local` | Must match certificate CN |
+| Backend Certificate | `istio-gw.crt` | Presented by Istio Gateway |
+| Trusted Root CA | `ca.crt` (MTKC-POC-CA) | Must be uploaded to both App Gateway and APIM |
+
+#### App Gateway Specific Settings
 
 | Setting | Value |
 |---------|-------|
-| Protocol | HTTPS |
-| Port | 443 |
-| Host Header | `mtkc-gateway.istio-ingress.svc.cluster.local` |
-| Trusted Root CA | `ca.crt` (MTKC-POC-CA) |
+| Frontend Certificate | `appgw.pfx` |
 | Health Probe | HTTPS GET `/healthz/ready` |
+
+#### APIM Specific Settings
+
+| Setting | Value |
+|---------|-------|
+| Frontend Certificate | Azure-managed or custom cert |
+| Backend URL | `https://10.0.1.x` (Internal LB IP) |
+| Validate Certificate Chain | Enabled |
+| Validate Certificate Name | Enabled |
 
 ### Kubernetes Gateway API Components
 
