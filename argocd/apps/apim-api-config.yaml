@@ -15,8 +15,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/shanaka-versent/shanaka-aks-poc.git
-    targetRevision: HEAD
+    repoURL: https://github.com/shanaka-versent/AKS-Istio-GatewayAPI-Demo.git
+    targetRevision: argocd-integration
     path: kubernetes
     directory:
       include: "10-apim-api-config.yaml"

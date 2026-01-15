@@ -13,8 +13,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/shanaka-versent/shanaka-aks-poc.git
-    targetRevision: HEAD  # Automatically follows default branch
+    repoURL: https://github.com/shanaka-versent/AKS-Istio-GatewayAPI-Demo.git
+    targetRevision: argocd-integration  # Automatically follows default branch
     path: kubernetes
     directory:
       include: "02-health-responder.yaml"
