@@ -271,6 +271,43 @@ variable "apim_virtual_network_type" {
 # Azure Service Operator (ASO) via ArgoCD for GitOps pattern.
 # See: kubernetes/10-apim-api-config.yaml
 
+# =============================================================================
+# Azure Front Door + Blob Storage (CDN Caching)
+# Similar to AWS CloudFront + S3 pattern
+# =============================================================================
+
+variable "enable_front_door" {
+  description = "Enable Azure Front Door for CDN caching"
+  type        = bool
+  default     = false
+}
+
+variable "front_door_sku" {
+  description = "Front Door SKU (Standard_AzureFrontDoor or Premium_AzureFrontDoor). Premium required for private APIM integration."
+  type        = string
+  default     = "Standard_AzureFrontDoor"
+  # Standard: ~$35/month + traffic costs
+  # Premium: ~$330/month + traffic costs (required for Private Link to APIM)
+}
+
+variable "upload_sample_static_assets" {
+  description = "Upload sample static assets (CSS, JS, images) to Blob Storage"
+  type        = bool
+  default     = true
+}
+
+variable "enable_front_door_waf" {
+  description = "Enable WAF policy on Front Door"
+  type        = bool
+  default     = false
+}
+
+variable "front_door_waf_mode" {
+  description = "WAF mode: Detection or Prevention"
+  type        = string
+  default     = "Detection"
+}
+
 # Tags
 variable "tags" {
   description = "Tags for all resources"

@@ -63,3 +63,23 @@ spec:
       backendRefs:
         - name: sample-app-2
           port: 80
+
+---
+# Demo Web Route - handles /demo paths (Front Door CDN demo)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: demo-web-route
+  namespace: sample-apps
+spec:
+  parentRefs:
+    - name: mtkc-gateway
+      namespace: istio-ingress
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /demo
+      backendRefs:
+        - name: demo-web
+          port: 80

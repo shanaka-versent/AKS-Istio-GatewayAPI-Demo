@@ -1,0 +1,29 @@
+# ArgoCD Application for Demo Web (Front Door CDN Demo)
+# Sync Wave 7 - Deploy alongside other sample apps
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-web
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/shanaka-versent/AKS-Istio-GatewayAPI-Demo.git
+    targetRevision: argocd-integration
+    path: kubernetes
+    directory:
+      include: "11-demo-web.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sample-apps
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true

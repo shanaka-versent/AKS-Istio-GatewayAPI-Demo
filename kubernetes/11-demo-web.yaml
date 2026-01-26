@@ -1,0 +1,295 @@
+# Demo Web Application - Displays images from Azure Blob Storage via Front Door CDN
+# This demonstrates the caching architecture with static assets
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-web-config
+  namespace: sample-apps
+data:
+  # STATIC_ASSETS_URL will be set by ArgoCD or manually after deployment
+  # Format: https://<front-door-endpoint>.azurefd.net/static
+  STATIC_ASSETS_URL: "/static"  # Default to relative path (works via Front Door)
+
+  nginx.conf: |
+    server {
+        listen 8080;
+        server_name _;
+
+        # Health check endpoint
+        location /demo/health {
+            access_log off;
+            return 200 '{"status":"healthy","service":"demo-web"}';
+            add_header Content-Type application/json;
+        }
+
+        # Info endpoint
+        location /demo/info {
+            access_log off;
+            return 200 '{"service":"demo-web","version":"1.0.0","environment":"AKS+Istio+FrontDoor"}';
+            add_header Content-Type application/json;
+        }
+
+        # Main demo page
+        location /demo {
+            alias /usr/share/nginx/html;
+            index index.html;
+            try_files $uri $uri/ /index.html;
+        }
+
+        # Redirect root to demo
+        location = / {
+            return 302 /demo;
+        }
+    }
+
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>MTKC POC - Azure AKS + Front Door Demo</title>
+        <!-- CSS served from Blob Storage via Front Door CDN -->
+        <link rel="stylesheet" href="/static/css/styles.css">
+        <style>
+            /* Inline fallback styles */
+            body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: white; margin: 0; padding: 20px; }
+            .container { max-width: 1200px; margin: 0 auto; }
+            .header { text-align: center; padding: 2rem; background: linear-gradient(135deg, #0078d4, #50e6ff); border-radius: 12px; margin-bottom: 2rem; }
+            .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+            .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 1.5rem; }
+            .card h2 { color: #50e6ff; margin-bottom: 1rem; }
+            .image-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1rem 0; }
+            .image-gallery img { width: 100%; border-radius: 8px; }
+            .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; }
+            .badge-success { background: #10b981; }
+            .badge-info { background: #0078d4; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <!-- Header with logo from Blob Storage -->
+            <header class="header">
+                <img src="/static/images/logo.svg" alt="MTKC POC Logo" class="logo" width="120" height="120"
+                     onerror="this.style.display='none'">
+                <h1>Azure AKS + Front Door Demo</h1>
+                <p>Enterprise API Gateway Architecture with CDN Caching</p>
+            </header>
+
+            <!-- Hero Image from Blob Storage -->
+            <div class="hero-section" style="margin-bottom: 2rem;">
+                <img src="/static/images/hero.svg" alt="Architecture Hero"
+                     style="width: 100%; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"
+                     onerror="this.style.display='none'">
+            </div>
+
+            <div class="cards">
+                <!-- Architecture Card -->
+                <div class="card">
+                    <h2>🏗️ Architecture</h2>
+                    <p>This demo showcases:</p>
+                    <ul style="list-style: none; padding: 0;">
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span class="badge badge-info">Front Door</span> Global CDN + WAF
+                        </li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span class="badge badge-info">Blob Storage</span> Static Assets (CSS, JS, Images)
+                        </li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span class="badge badge-info">App Gateway</span> Web Traffic Entry
+                        </li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span class="badge badge-info">APIM</span> API Traffic Entry
+                        </li>
+                        <li style="padding: 0.5rem 0;">
+                            <span class="badge badge-success">Istio</span> Ambient Mesh + Gateway API
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Static Assets Card -->
+                <div class="card">
+                    <h2>📦 Static Assets (Cached)</h2>
+                    <p>These assets are served from Azure Blob Storage via Front Door CDN:</p>
+                    <ul style="list-style: none; padding: 0; font-family: monospace; font-size: 0.9rem;">
+                        <li style="padding: 0.3rem 0;">/static/css/styles.css</li>
+                        <li style="padding: 0.3rem 0;">/static/js/app.js</li>
+                        <li style="padding: 0.3rem 0;">/static/images/logo.svg</li>
+                        <li style="padding: 0.3rem 0;">/static/images/hero.svg</li>
+                        <li style="padding: 0.3rem 0;">/static/images/architecture.svg</li>
+                    </ul>
+                    <p style="margin-top: 1rem; color: #a0aec0; font-size: 0.85rem;">
+                        Cache TTL: 1 year (immutable) | Compression: Brotli + Gzip
+                    </p>
+                </div>
+
+                <!-- Image Gallery Card -->
+                <div class="card" style="grid-column: span 2;">
+                    <h2>🖼️ Image Gallery (From Blob Storage)</h2>
+                    <p>Images below are served from Azure Blob Storage and cached at Front Door edge locations:</p>
+                    <div class="image-gallery">
+                        <div>
+                            <img src="/static/images/logo.svg" alt="Logo"
+                                 onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22150%22><rect fill=%22%230078d4%22 width=%22200%22 height=%22150%22/><text x=%2250%%22 y=%2250%%22 fill=%22white%22 text-anchor=%22middle%22>Logo</text></svg>'">
+                            <p style="text-align: center; margin-top: 0.5rem; color: #a0aec0;">logo.svg</p>
+                        </div>
+                        <div>
+                            <img src="/static/images/architecture.svg" alt="Architecture"
+                                 onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22150%22><rect fill=%22%2300bcf2%22 width=%22200%22 height=%22150%22/><text x=%2250%%22 y=%2250%%22 fill=%22white%22 text-anchor=%22middle%22>Architecture</text></svg>'">
+                            <p style="text-align: center; margin-top: 0.5rem; color: #a0aec0;">architecture.svg</p>
+                        </div>
+                        <div>
+                            <img src="/static/images/hero.svg" alt="Hero" style="height: 150px; object-fit: cover;"
+                                 onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22150%22><rect fill=%22%2350e6ff%22 width=%22200%22 height=%22150%22/><text x=%2250%%22 y=%2250%%22 fill=%22white%22 text-anchor=%22middle%22>Hero</text></svg>'">
+                            <p style="text-align: center; margin-top: 0.5rem; color: #a0aec0;">hero.svg</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Traffic Flow Card -->
+                <div class="card">
+                    <h2>🔄 Traffic Flow</h2>
+                    <pre style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 8px; font-size: 0.8rem; overflow-x: auto;">
+    Client (Browser)
+           │
+           ▼
+    ┌─────────────────┐
+    │  Front Door CDN │  ← Global Edge Caching
+    │  + WAF          │
+    └────────┬────────┘
+             │
+    ┌────────┼────────┐
+    │        │        │
+    ▼        ▼        ▼
+  /static  /app*   /api/*
+    │        │        │
+    ▼        ▼        ▼
+  Blob    App GW    APIM
+  Storage    │        │
+             └────┬───┘
+                  ▼
+           Istio Gateway
+                  │
+           ┌──────┼──────┐
+           ▼      ▼      ▼
+         App1   App2   API
+                    </pre>
+                </div>
+
+                <!-- Server Info Card -->
+                <div class="card">
+                    <h2>🖥️ Server Information</h2>
+                    <div style="background: rgba(0,120,212,0.1); border: 1px solid #0078d4; border-radius: 8px; padding: 1rem;">
+                        <p><strong>Pod Name:</strong> <code id="pod-name">demo-web-xxx</code></p>
+                        <p><strong>Namespace:</strong> <code>sample-apps</code></p>
+                        <p><strong>Timestamp:</strong> <code id="timestamp">Loading...</code></p>
+                        <p><strong>Cache Status:</strong> <span class="badge badge-success" id="cache-status">Checking...</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Architecture Diagram -->
+            <div style="margin-top: 2rem;">
+                <h2 style="color: #50e6ff; margin-bottom: 1rem;">📊 Architecture Diagram</h2>
+                <img src="/static/images/architecture.svg" alt="Full Architecture Diagram"
+                     style="width: 100%; border-radius: 12px; background: rgba(255,255,255,0.05); padding: 1rem;"
+                     onerror="this.parentElement.innerHTML='<p style=color:#a0aec0>Architecture diagram not available</p>'">
+            </div>
+
+            <!-- Footer -->
+            <footer style="text-align: center; padding: 2rem; color: #a0aec0; margin-top: 2rem;">
+                <p>MTKC POC - Azure AKS + Istio + Gateway API + Front Door</p>
+                <p style="font-size: 0.85rem;">Static assets served from Azure Blob Storage via Front Door CDN</p>
+            </footer>
+        </div>
+
+        <!-- JavaScript from Blob Storage via Front Door -->
+        <script src="/static/js/app.js"></script>
+        <script>
+            // Fallback inline script if external JS fails to load
+            document.getElementById('timestamp').textContent = new Date().toISOString();
+
+            // Check if static assets loaded
+            window.addEventListener('load', function() {
+                var cssLoaded = document.styleSheets.length > 1;
+                var cacheStatus = document.getElementById('cache-status');
+                if (cacheStatus) {
+                    cacheStatus.textContent = cssLoaded ? 'CSS Loaded' : 'Inline Only';
+                    cacheStatus.className = cssLoaded ? 'badge badge-success' : 'badge badge-info';
+                }
+            });
+        </script>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-web
+  namespace: sample-apps
+  labels:
+    app: demo-web
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-web
+  template:
+    metadata:
+      labels:
+        app: demo-web
+        version: v1
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: nginx.conf
+            - name: config
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+          livenessProbe:
+            httpGet:
+              path: /demo/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /demo/health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: demo-web-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-web
+  namespace: sample-apps
+  labels:
+    app: demo-web
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: demo-web
