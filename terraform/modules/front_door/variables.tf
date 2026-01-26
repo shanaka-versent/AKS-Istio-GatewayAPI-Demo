@@ -43,9 +43,9 @@ variable "apim_host" {
 }
 
 variable "enable_apim_origin" {
-  description = "Whether to enable APIM as an origin (NOT recommended - APIM has built-in caching/WAF)"
+  description = "Enable APIM as Front Door origin. Recommended for: global/multi-region deployments, unified WAF policy, L7 DDoS protection. Not needed for: single region, cost-conscious deployments where APIM policies suffice."
   type        = bool
-  default     = false  # Disabled by default - best practice is APIM direct access
+  default     = false  # Enable for global/multi-region deployments
 }
 
 variable "enable_waf" {

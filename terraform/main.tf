@@ -180,7 +180,7 @@ module "static_assets" {
 # Routes:
 #   /static/* -> Blob Storage (cached 1 year)
 #   /app*, /demo, /* -> App Gateway (no cache)
-#   /api/* -> APIM directly (NOT through Front Door - best practice)
+#   /api/* -> APIM (optional - enable for global/multi-region deployments)
 module "front_door" {
   source = "./modules/front_door"
   count  = var.enable_front_door ? 1 : 0
@@ -196,8 +196,8 @@ module "front_door" {
   blob_storage_host = module.static_assets[0].primary_web_host
   app_gateway_host  = module.app_gateway.public_ip
 
-  # APIM Origin (NOT recommended - APIM has built-in caching/WAF)
-  enable_apim_origin = false  # Best practice: access APIM directly
+  # APIM Origin - enable for global/multi-region deployments, unified WAF, L7 DDoS
+  enable_apim_origin = false  # Enable if you need global distribution or unified entry point
   apim_host          = var.enable_apim ? module.apim[0].gateway_url : ""
 
   # WAF (optional)

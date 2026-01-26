@@ -10,6 +10,8 @@ Kubernetes Gateway API provides a superior approach to multi-tenancy compared to
 - **Istio Ambient Mesh** (NOT sidecar mode)
 - **Azure Application Gateway v2** (Web Traffic)
 - **Azure API Management** (API Traffic)
+- **Azure Front Door Premium** (CDN caching for static assets)
+- **Azure Blob Storage** (Static asset hosting - similar to AWS S3)
 - **ArgoCD** with **Sync Waves** (GitOps for all K8s resources)
 - **Azure Service Operator (ASO)** (Manages APIM APIs via K8s CRDs)
 - **Terraform** for Azure infrastructure only
@@ -1034,6 +1036,168 @@ Commit and push - ArgoCD syncs automatically.
 | Basic_1 | ~$150 | Small production |
 | Standard_1 | ~$700 | Production with SLA |
 | Premium_1 | ~$3000 | Enterprise, VNet integration |
+
+---
+
+## Azure Front Door + Blob Storage (CDN Caching)
+
+Similar to the AWS CloudFront + S3 pattern, this POC includes Azure Front Door for CDN caching with Azure Blob Storage for static assets.
+
+### Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph Internet["Internet"]
+        Browser(["Web Browser"])
+    end
+
+    subgraph Azure["Azure Cloud"]
+        subgraph FrontDoor["Azure Front Door Premium"]
+            FD_EP["Endpoint: mtkc-poc-endpoint.azurefd.net"]
+            FD_Rules["Route Rules"]
+        end
+
+        subgraph Origins["Origin Groups"]
+            StaticOrigin["Static Assets Origin<br/>(Blob Storage)"]
+            AppOrigin["App Origin<br/>(App Gateway)"]
+        end
+
+        Blob["Azure Blob Storage<br/>Static Website<br/>/static/*"]
+        AppGW["Azure App Gateway<br/>/app*, /demo, /*"]
+
+        subgraph AKS["AKS Cluster"]
+            DemoWeb["demo-web<br/>Displays images from<br/>Blob Storage"]
+        end
+    end
+
+    Browser -->|"HTTPS"| FD_EP
+    FD_EP --> FD_Rules
+    FD_Rules -->|"/static/*<br/>Cache: 1 year"| StaticOrigin
+    FD_Rules -->|"/app*, /demo, /*<br/>No cache"| AppOrigin
+    StaticOrigin --> Blob
+    AppOrigin --> AppGW
+    AppGW --> DemoWeb
+
+    classDef fd fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef appgw fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
+    classDef aks fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+
+    class FrontDoor,FD_EP,FD_Rules fd
+    class Blob,StaticOrigin storage
+    class AppGW,AppOrigin appgw
+    class AKS,DemoWeb aks
+```
+
+### Traffic Routing
+
+| Path | Origin | Caching | Use Case |
+|------|--------|---------|----------|
+| `/static/*` | Blob Storage | 1 year (31536000s) | CSS, JS, images, fonts |
+| `/app*`, `/demo`, `/*` | App Gateway | No cache | Dynamic web applications |
+| `/api/*` | APIM (direct or via Front Door) | Varies | API traffic (see guidance below) |
+
+### Front Door + APIM: When to Use
+
+The decision to put Front Door in front of APIM depends on your requirements:
+
+| Requirement | Recommendation |
+|-------------|----------------|
+| Single region, internal APIs | APIM with private endpoint |
+| Single region, external APIs | App Gateway (WAF) → APIM |
+| Multi-region, global users | **Front Door → APIM** (per region) |
+| Unified entry for web + API | **Front Door** routing to appropriate backends |
+| Cost-conscious, moderate traffic | APIM direct |
+
+**When Front Door + APIM Makes Sense:**
+
+| Scenario | Why Front Door Adds Value |
+|----------|---------------------------|
+| Global distribution | APIM is regional; Front Door provides global anycast with nearest POP |
+| Multi-region APIM | Front Door can load balance across APIM instances in different regions |
+| DDoS protection | Front Door provides L7 DDoS protection at the edge |
+| Unified WAF policy | Single WAF policy across all endpoints (web, API, static) |
+| TLS termination at edge | Reduces latency for global clients |
+
+**APIM Alone is Sufficient When:**
+- Single region deployment
+- Moderate traffic levels
+- Cost is a primary concern
+- Built-in APIM caching and policies meet your needs
+
+> **Note:** APIM doesn't have native WAF — you need either Application Gateway with WAF or Front Door for proper WAF protection (OWASP rule sets, bot protection, etc.).
+
+### Enable Front Door
+
+```hcl
+# terraform.tfvars
+enable_front_door         = true
+front_door_sku            = "Premium_AzureFrontDoor"  # Default
+upload_sample_static_assets = true
+enable_front_door_waf     = false  # Enable for production
+```
+
+### Front Door Premium Features
+
+| Feature | Description |
+|---------|-------------|
+| **Advanced WAF** | Custom rules, bot protection, geo-filtering |
+| **Microsoft Bot Manager** | Protect against malicious bot traffic |
+| **Private Link** | Connect to ANY origin privately (Storage, App Gateway, AKS) |
+| **Enhanced DDoS** | Advanced DDoS protection |
+| **TLS 1.3 + mTLS** | Latest security protocols |
+| **Advanced Analytics** | Detailed insights and reporting |
+
+### Demo Web Application
+
+The `demo-web` application demonstrates Front Door CDN caching by displaying images served from Blob Storage:
+
+```bash
+# Access via Front Door (recommended - cached)
+curl https://mtkc-poc-endpoint.azurefd.net/demo
+
+# Access via App Gateway (bypasses CDN)
+curl -k https://<APP_GW_IP>/demo
+```
+
+**Demo features:**
+- Image gallery loaded from Blob Storage
+- CSS/JS served via Front Door CDN
+- Architecture visualization
+- Response time comparison (cached vs uncached)
+
+### Static Assets in Blob Storage
+
+Sample static assets are automatically uploaded when `upload_sample_static_assets = true`:
+
+| Asset | Path | Cache TTL |
+|-------|------|-----------|
+| `styles.css` | `/static/css/styles.css` | 1 year |
+| `app.js` | `/static/js/app.js` | 1 year |
+| `logo.svg` | `/static/images/logo.svg` | 1 year |
+| `hero.jpg` | `/static/images/hero.jpg` | 1 year |
+
+### Terraform Outputs
+
+```bash
+# Get Front Door endpoint URL
+terraform output front_door_endpoint_url
+
+# Get static assets URL
+terraform output front_door_static_assets_url
+
+# Get recommended access URLs
+terraform output recommended_urls
+```
+
+### Front Door SKU Comparison
+
+| SKU | Cost/Month | Features |
+|-----|------------|----------|
+| **Standard** | ~$35 + traffic | Basic CDN, WAF, caching |
+| **Premium** | ~$330 + traffic | All Standard features + Private Link, advanced WAF, bot protection, mTLS |
+
+> **Recommendation:** Use Premium for enterprise deployments. The additional security features and Private Link support justify the cost difference.
 
 ---
 
