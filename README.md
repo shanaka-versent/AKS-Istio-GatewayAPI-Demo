@@ -1104,10 +1104,11 @@ The decision to put Front Door in front of APIM depends on your requirements:
 | Requirement | Recommendation |
 |-------------|----------------|
 | Single region, internal APIs | APIM with private endpoint |
-| Single region, external APIs | App Gateway (WAF) → APIM |
+| Single region, external APIs (no WAF needed) | App Gateway (web) + APIM (API) in parallel |
+| Single region, external APIs (WAF needed) | App Gateway (WAF) in front of APIM |
 | Multi-region, global users | **Front Door → APIM** (per region) |
 | Unified entry for web + API | **Front Door** routing to appropriate backends |
-| Cost-conscious, moderate traffic | APIM direct |
+| Cost-conscious, moderate traffic | APIM direct (no WAF) |
 
 **When Front Door + APIM Makes Sense:**
 
@@ -1125,7 +1126,7 @@ The decision to put Front Door in front of APIM depends on your requirements:
 - Cost is a primary concern
 - Built-in APIM caching and policies meet your needs
 
-> **Note on APIM WAF Limitations:** APIM does NOT have native WAF. APIM policies (rate limiting, IP filtering, JWT validation) are powerful but don't provide OWASP CRS, SQL injection/XSS protection, or bot mitigation. For production APIs exposed to the internet, place App Gateway (WAF) or Front Door (WAF) in front of APIM.
+> **Note on APIM WAF Limitations:** APIM does NOT have native WAF. APIM policies (rate limiting, IP filtering, JWT validation) are powerful but don't provide OWASP CRS, SQL injection/XSS protection, or bot mitigation. For production APIs exposed to the internet that require WAF, place App Gateway (WAF) or Front Door (WAF) **in front of** APIM (chained, not parallel).
 
 ### Enable Front Door
 
