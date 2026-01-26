@@ -283,11 +283,17 @@ variable "enable_front_door" {
 }
 
 variable "front_door_sku" {
-  description = "Front Door SKU (Standard_AzureFrontDoor or Premium_AzureFrontDoor). Premium required for private APIM integration."
+  description = "Front Door SKU. Premium recommended for enterprise features (advanced WAF, bot protection, Private Link, enhanced DDoS)."
   type        = string
-  default     = "Standard_AzureFrontDoor"
-  # Standard: ~$35/month + traffic costs
-  # Premium: ~$330/month + traffic costs (required for Private Link to APIM)
+  default     = "Premium_AzureFrontDoor"
+  # Standard: ~$35/month + traffic costs (basic features)
+  # Premium: ~$330/month + traffic costs (recommended for enterprise)
+  #   - Advanced WAF with custom rules
+  #   - Microsoft Bot Manager
+  #   - Private Link to ANY origin (Storage, App Gateway, AKS, etc.)
+  #   - Enhanced DDoS protection
+  #   - TLS 1.3 + mTLS support
+  #   - Advanced analytics and insights
 }
 
 variable "upload_sample_static_assets" {
