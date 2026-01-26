@@ -89,6 +89,14 @@ flowchart TB
     end
 
     subgraph Azure["Azure Cloud"]
+        subgraph CDN["Azure Front Door (Optional CDN)"]
+            FD["Front Door Premium<br/>*.azurefd.net"]
+            FD_Static["/static/* → Blob Storage"]
+            FD_Web["/app*, /demo → App Gateway"]
+        end
+
+        Blob["Azure Blob Storage<br/>(Static Assets)"]
+
         subgraph PublicEntry["Public Entry Points (TLS Termination #1)"]
             subgraph AppGWBox["Azure App Gateway (Web Traffic)"]
                 AppGW_IP["Public IP: 68.218.110.49"]
@@ -113,19 +121,23 @@ flowchart TB
             end
 
             subgraph Routes["HTTPRoutes"]
-                AllRoutes["/healthz/*<br/>/app1<br/>/app2<br/>/api/users"]
+                AllRoutes["/healthz/*<br/>/app1<br/>/app2<br/>/demo<br/>/api/users"]
             end
 
             subgraph Apps["Applications"]
                 HealthApp["health-responder"]
                 WebApp1["sample-app-1"]
                 WebApp2["sample-app-2"]
+                DemoWeb["demo-web"]
                 UsersAPI["users-api"]
             end
         end
     end
 
-    WebClient -->|"HTTPS"| AppGW_IP
+    WebClient -->|"HTTPS"| FD
+    FD_Static -->|"Cached"| Blob
+    FD_Web --> AppGW_IP
+    WebClient -.->|"Direct (no CDN)"| AppGW_IP
     APIClient -->|"HTTPS<br/>/api/v1/users<br/>/api/v2/users"| APIM_URL
 
     AppGW_Backend -->|"HTTPS<br/>(re-encrypt)"| ILB
@@ -136,9 +148,12 @@ flowchart TB
     AllRoutes --> HealthApp
     AllRoutes --> WebApp1
     AllRoutes --> WebApp2
+    AllRoutes --> DemoWeb
     AllRoutes --> UsersAPI
 
     classDef internet fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef cdn fill:#e8f5e9,stroke:#43a047,stroke-width:2px
+    classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef appgw fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
     classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef ilb fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
@@ -147,12 +162,14 @@ flowchart TB
     classDef apps fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 
     class WebClient,APIClient internet
+    class CDN,FD,FD_Static,FD_Web cdn
+    class Blob storage
     class AppGWBox,AppGW_IP,AppGW_Listener,AppGW_TLS,AppGW_Backend appgw
     class APIMBox,APIM_URL,APIM_Listener,APIM_TLS,APIM_Backend,APIM_Features apim
     class ILB ilb
     class GW gateway
     class AllRoutes routes
-    class HealthApp,WebApp1,WebApp2,UsersAPI apps
+    class HealthApp,WebApp1,WebApp2,DemoWeb,UsersAPI apps
 ```
 
 #### Traffic Flow Summary
