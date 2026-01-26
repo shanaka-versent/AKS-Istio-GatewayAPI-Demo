@@ -1125,7 +1125,29 @@ The decision to put Front Door in front of APIM depends on your requirements:
 - Cost is a primary concern
 - Built-in APIM caching and policies meet your needs
 
-> **Note:** APIM doesn't have native WAF — you need either Application Gateway with WAF or Front Door for proper WAF protection (OWASP rule sets, bot protection, etc.).
+### APIM WAF Limitations
+
+> **Important:** Azure API Management does NOT have native WAF capabilities. APIM policies are powerful but are not a replacement for a proper Web Application Firewall.
+
+| APIM Policies | Proper WAF (App Gateway/Front Door) |
+|---------------|-------------------------------------|
+| Rate limiting, quotas | OWASP Core Rule Set (CRS) |
+| IP filtering | SQL injection protection |
+| JWT validation | Cross-site scripting (XSS) protection |
+| Request/response transformation | Bot protection & mitigation |
+| Custom policy expressions | Geo-filtering |
+| | Custom WAF rules |
+| | DDoS protection (L7) |
+
+**To add WAF protection to APIM, you need one of:**
+
+| Pattern | Use Case |
+|---------|----------|
+| **App Gateway (WAF) → APIM** | Single region, need WAF for API traffic |
+| **Front Door (WAF) → APIM** | Multi-region, global users, unified WAF policy |
+| **APIM with Private Endpoint** | Internal APIs only, WAF not required |
+
+> **Recommendation:** For production API deployments exposed to the internet, always place a WAF-enabled service (App Gateway or Front Door) in front of APIM.
 
 ### Enable Front Door
 
