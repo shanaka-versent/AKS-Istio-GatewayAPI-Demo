@@ -49,3 +49,13 @@ output "sku_name" {
   description = "SKU of the Front Door profile"
   value       = azurerm_cdn_frontdoor_profile.main.sku_name
 }
+
+output "private_link_enabled" {
+  description = "Whether Private Link is enabled for web traffic"
+  value       = var.enable_private_link
+}
+
+output "apim_private_link_enabled" {
+  description = "Whether Private Link is enabled for APIM"
+  value       = var.apim_private_link_enabled
+}

@@ -74,7 +74,7 @@ module "aks" {
   log_retention_days = var.log_retention_days
 
   # Identity & Security
-  enable_azure_policy      = var.enable_azure_policy
+  enable_azure_policy       = var.enable_azure_policy
   enable_rg_role_assignment = var.enable_rg_role_assignment
 
   tags = var.tags
@@ -84,10 +84,10 @@ module "aks" {
 module "app_gateway" {
   source = "./modules/app_gateway"
 
-  name_prefix           = local.name_prefix
-  location              = var.location
-  resource_group_name   = module.resource_group.name
-  subnet_id             = module.network.appgw_subnet_id
+  name_prefix         = local.name_prefix
+  location            = var.location
+  resource_group_name = module.resource_group.name
+  subnet_id           = module.network.appgw_subnet_id
 
   # HTTPS/TLS
   enable_https          = var.enable_https
@@ -116,7 +116,7 @@ module "argocd" {
   release_name  = "argocd"
   chart_version = var.argocd_chart_version
   service_type  = "LoadBalancer"
-  internal_lb   = true  # Use Azure Internal LoadBalancer
+  internal_lb   = true # Use Azure Internal LoadBalancer
   enable_ha     = var.argocd_enable_ha
 
   depends_on = [module.aks]
@@ -176,10 +176,43 @@ module "static_assets" {
   tags = var.tags
 }
 
+# =============================================================================
+# Private Link Module (for Front Door Premium)
+# Enables secure connectivity to Internal LB and APIM without public exposure
+# =============================================================================
+
+module "private_link" {
+  source = "./modules/private_link"
+  count  = var.enable_front_door && var.enable_private_link ? 1 : 0
+
+  name_prefix              = local.name_prefix
+  location                 = var.location
+  resource_group_name      = module.resource_group.name
+  subscription_id          = data.azurerm_client_config.current.subscription_id
+  vnet_id                  = module.network.vnet_id
+  vnet_name                = module.network.vnet_name
+  private_link_subnet_cidr = var.private_link_subnet_cidr
+
+  # Internal LB Private Link Service
+  # Note: enable_internal_lb_pls requires the K8s Internal LB to exist first
+  # The lb_frontend_ip_configuration_id must be obtained after K8s deployment
+  enable_internal_lb_pls          = false # Enable after K8s ILB is created
+  lb_frontend_ip_configuration_id = ""    # Set after obtaining ILB frontend IP config ID
+
+  # APIM Private Endpoint (when APIM is deployed)
+  enable_apim_private_endpoint = var.enable_apim && var.enable_apim_private_link
+  apim_id                      = var.enable_apim ? module.apim[0].apim_id : ""
+  apim_name                    = var.enable_apim ? module.apim[0].apim_name : ""
+
+  tags = var.tags
+
+  depends_on = [module.network, module.apim]
+}
+
 # Azure Front Door (CDN + WAF)
 # Routes:
 #   /static/* -> Blob Storage (cached 1 year)
-#   /app*, /demo, /* -> App Gateway (no cache)
+#   /app*, /demo, /* -> App Gateway or Internal LB (no cache)
 #   /api/* -> APIM (optional - enable for global/multi-region deployments)
 module "front_door" {
   source = "./modules/front_door"
@@ -189,22 +222,32 @@ module "front_door" {
   resource_group_name = module.resource_group.name
   location            = var.location
 
-  # SKU: Standard for POC, Premium for private APIM integration
+  # SKU: Standard for POC, Premium for Private Link support
   sku_name = var.front_door_sku
 
   # Origins
   blob_storage_host = module.static_assets[0].primary_web_host
   app_gateway_host  = module.app_gateway.public_ip
 
-  # APIM Origin - enable for global/multi-region deployments, unified WAF, L7 DDoS
-  enable_apim_origin = false  # Enable if you need global distribution or unified entry point
-  apim_host          = var.enable_apim ? module.apim[0].gateway_url : ""
+  # Private Link Configuration (requires Premium SKU)
+  enable_private_link    = var.enable_private_link
+  internal_lb_pls_id     = var.enable_private_link ? module.private_link[0].internal_lb_pls_id : ""
+  internal_lb_private_ip = "" # Set after obtaining ILB private IP
 
-  # WAF (optional)
+  # APIM Origin - enable for global/multi-region deployments, unified WAF, L7 DDoS
+  enable_apim_origin        = var.enable_apim && var.enable_apim_private_link
+  apim_host                 = var.enable_apim ? replace(module.apim[0].apim_gateway_url, "https://", "") : ""
+  apim_private_link_enabled = var.enable_apim_private_link
+  apim_id                   = var.enable_apim ? module.apim[0].apim_id : ""
+
+  # WAF (optional - recommended for API protection when using APIM via Front Door)
   enable_waf = var.enable_front_door_waf
   waf_mode   = var.front_door_waf_mode
 
   tags = var.tags
 
-  depends_on = [module.static_assets, module.app_gateway]
+  depends_on = [module.static_assets, module.app_gateway, module.private_link]
 }
+
+# Data source for subscription ID
+data "azurerm_client_config" "current" {}

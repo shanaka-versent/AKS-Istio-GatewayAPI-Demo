@@ -314,6 +314,29 @@ variable "front_door_waf_mode" {
   default     = "Detection"
 }
 
+# =============================================================================
+# Private Link Configuration (Front Door Premium)
+# Enables secure connectivity to origins without public internet exposure
+# =============================================================================
+
+variable "enable_private_link" {
+  description = "Enable Private Link for Front Door origins (requires Premium SKU)"
+  type        = bool
+  default     = false
+}
+
+variable "private_link_subnet_cidr" {
+  description = "CIDR for Private Link subnet"
+  type        = string
+  default     = "10.0.4.0/24"
+}
+
+variable "enable_apim_private_link" {
+  description = "Enable Private Link for APIM origin via Front Door"
+  type        = bool
+  default     = false
+}
+
 # Tags
 variable "tags" {
   description = "Tags for all resources"

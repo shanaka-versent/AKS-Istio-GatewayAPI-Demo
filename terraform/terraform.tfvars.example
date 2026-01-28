@@ -38,3 +38,23 @@ apim_sku_name             = "Developer_1"  # ~$50/month for POC
 apim_virtual_network_type = "External"     # Public IP + VNet access to backend
 apim_publisher_name       = "MTKC POC"
 apim_publisher_email      = "admin@example.com"
+
+# =============================================================================
+# Azure Front Door + CDN Caching (Similar to CloudFront + S3)
+# =============================================================================
+enable_front_door           = true
+front_door_sku              = "Premium_AzureFrontDoor"  # Required for Private Link
+upload_sample_static_assets = true
+enable_front_door_waf       = false  # Enable for production
+
+# =============================================================================
+# Private Link Configuration (Front Door Premium)
+# Enables secure connectivity without public internet exposure
+# =============================================================================
+enable_private_link      = false  # Enable for production (requires Premium SKU)
+enable_apim_private_link = false  # Enable Private Link for APIM origin
+
+# Note: When enable_private_link is true:
+# - Front Door connects to Internal LB via Private Link Service
+# - Front Door connects to APIM via Private Endpoint (if enable_apim_private_link is true)
+# - App Gateway is bypassed for web traffic (Front Door provides WAF)

@@ -45,7 +45,49 @@ variable "apim_host" {
 variable "enable_apim_origin" {
   description = "Enable APIM as Front Door origin. Recommended for: global/multi-region deployments, unified WAF policy, L7 DDoS protection. Not needed for: single region, cost-conscious deployments where APIM policies suffice."
   type        = bool
-  default     = false  # Enable for global/multi-region deployments
+  default     = false # Enable for global/multi-region deployments
+}
+
+# =============================================================================
+# Private Link Configuration (Premium SKU only)
+# =============================================================================
+
+variable "enable_private_link" {
+  description = "Enable Private Link for origins (requires Premium SKU)"
+  type        = bool
+  default     = false
+}
+
+variable "private_link_target_type" {
+  description = "Type of Private Link target: 'internal_lb' for AKS Internal LB, 'apim' for APIM"
+  type        = string
+  default     = "internal_lb"
+}
+
+# Internal LB Private Link
+variable "internal_lb_pls_id" {
+  description = "Private Link Service ID for Internal Load Balancer"
+  type        = string
+  default     = ""
+}
+
+variable "internal_lb_private_ip" {
+  description = "Private IP of Internal Load Balancer"
+  type        = string
+  default     = ""
+}
+
+# APIM Private Link
+variable "apim_private_link_enabled" {
+  description = "Enable Private Link for APIM origin"
+  type        = bool
+  default     = false
+}
+
+variable "apim_id" {
+  description = "APIM resource ID (for Private Link)"
+  type        = string
+  default     = ""
 }
 
 variable "enable_waf" {

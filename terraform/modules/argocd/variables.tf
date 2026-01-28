@@ -16,7 +16,7 @@ variable "release_name" {
 variable "chart_version" {
   description = "ArgoCD Helm chart version"
   type        = string
-  default     = "5.55.0"  # Latest stable version
+  default     = "5.55.0" # Latest stable version
 }
 
 variable "service_type" {

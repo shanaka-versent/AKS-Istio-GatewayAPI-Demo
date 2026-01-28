@@ -182,8 +182,32 @@ output "front_door_urls" {
 output "recommended_urls" {
   description = "Recommended URLs for different traffic types"
   value = {
-    web_traffic = var.enable_front_door ? "Via Front Door: ${module.front_door[0].endpoint_url}" : "Via App Gateway: https://${module.app_gateway.public_ip_address}"
-    api_traffic = var.enable_apim ? "Via APIM directly: ${module.apim[0].apim_gateway_url}" : "API not enabled"
+    web_traffic   = var.enable_front_door ? "Via Front Door: ${module.front_door[0].endpoint_url}" : "Via App Gateway: https://${module.app_gateway.public_ip_address}"
+    api_traffic   = var.enable_apim ? (var.enable_apim_private_link ? "Via Front Door: ${module.front_door[0].endpoint_url}/api" : "Via APIM directly: ${module.apim[0].apim_gateway_url}") : "API not enabled"
     static_assets = var.enable_front_door ? "Via Front Door: ${module.front_door[0].static_assets_url}" : "Front Door not enabled"
   }
+}
+
+# =============================================================================
+# Private Link Outputs
+# =============================================================================
+
+output "private_link_enabled" {
+  description = "Whether Private Link is enabled for Front Door"
+  value       = var.enable_private_link
+}
+
+output "private_link_subnet_id" {
+  description = "Private Link subnet ID"
+  value       = var.enable_front_door && var.enable_private_link ? module.private_link[0].private_link_subnet_id : null
+}
+
+output "internal_lb_pls_id" {
+  description = "Private Link Service ID for Internal LB (use after K8s ILB is created)"
+  value       = var.enable_front_door && var.enable_private_link ? module.private_link[0].internal_lb_pls_id : null
+}
+
+output "apim_private_endpoint_ip" {
+  description = "Private IP of APIM Private Endpoint"
+  value       = var.enable_front_door && var.enable_private_link && var.enable_apim_private_link ? module.private_link[0].apim_private_endpoint_ip : null
 }

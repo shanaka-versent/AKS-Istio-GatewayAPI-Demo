@@ -1217,6 +1217,99 @@ terraform output recommended_urls
 
 > **Recommendation:** Use Premium for enterprise deployments. The additional security features and Private Link support justify the cost difference.
 
+### Private Link Architecture (Premium SKU)
+
+With Front Door Premium, you can enable Private Link connectivity to bypass public internet entirely for backend communication:
+
+```mermaid
+flowchart TB
+    subgraph Internet["Internet"]
+        Browser(["Web Browser"])
+        APIClient(["API Client"])
+    end
+
+    subgraph Azure["Azure Cloud"]
+        subgraph FrontDoor["Azure Front Door Premium (WAF)"]
+            FD_EP["Endpoint: mtkc-poc-endpoint.azurefd.net"]
+            FD_WAF["WAF Policy<br/>(OWASP CRS, Bot Protection)"]
+        end
+
+        subgraph PrivateLink["Private Link Connections"]
+            PL_ILB["Private Link Service<br/>→ Internal LB"]
+            PL_APIM["Private Endpoint<br/>→ APIM"]
+        end
+
+        Blob["Azure Blob Storage<br/>Static Assets"]
+
+        subgraph VNet["VNet (Private)"]
+            subgraph AKS["AKS Cluster"]
+                ILB["Internal LB<br/>10.0.1.x"]
+                Gateway["Istio Gateway"]
+                Apps["Web Apps"]
+            end
+
+            APIM["Azure APIM<br/>(Internal Mode)<br/>API Management"]
+        end
+    end
+
+    Browser -->|"HTTPS"| FD_EP
+    APIClient -->|"HTTPS"| FD_EP
+    FD_EP --> FD_WAF
+
+    FD_WAF -->|"/static/*<br/>Cached"| Blob
+    FD_WAF -->|"/app*, /demo<br/>Private Link"| PL_ILB
+    FD_WAF -->|"/api/*<br/>Private Link + WAF"| PL_APIM
+
+    PL_ILB -->|"Private"| ILB
+    PL_APIM -->|"Private"| APIM
+
+    ILB --> Gateway
+    Gateway --> Apps
+    APIM -->|"Backend"| ILB
+
+    classDef fd fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef pl fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef vnet fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+
+    class FrontDoor,FD_EP,FD_WAF fd
+    class PrivateLink,PL_ILB,PL_APIM pl
+    class Blob storage
+    class VNet,AKS,ILB,Gateway,Apps,APIM vnet
+```
+
+#### Benefits of Private Link Architecture
+
+| Benefit | Description |
+|---------|-------------|
+| **No Public Exposure** | Internal LB and APIM don't need public IPs |
+| **Unified WAF** | Single WAF policy at Front Door edge for all traffic |
+| **Reduced Latency** | Direct Private Link connection vs public internet |
+| **Enhanced Security** | Traffic never traverses public internet |
+| **Simplified Architecture** | No need for App Gateway (WAF only at Front Door) |
+
+#### Enable Private Link
+
+```hcl
+# terraform.tfvars
+enable_front_door      = true
+front_door_sku         = "Premium_AzureFrontDoor"  # Required for Private Link
+enable_private_link    = true
+enable_apim            = true
+enable_apim_private_link = true
+enable_front_door_waf  = true  # Recommended for API protection
+```
+
+#### Traffic Flow with Private Link
+
+| Path | Route | Protection |
+|------|-------|------------|
+| `/static/*` | Front Door → Blob Storage | CDN caching (public) |
+| `/app*`, `/demo`, `/*` | Front Door → Private Link → Internal LB → Istio Gateway | WAF + Private Link |
+| `/api/*` | Front Door → Private Link → APIM → Internal LB → Istio Gateway | WAF + Private Link + APIM policies |
+
+> **Note:** The Internal LB Private Link Service requires the Kubernetes Internal Load Balancer to exist first. After deploying the Gateway via ArgoCD, you'll need to obtain the ILB frontend IP configuration ID and update the Terraform configuration.
+
 ---
 
 ## ArgoCD Integration
