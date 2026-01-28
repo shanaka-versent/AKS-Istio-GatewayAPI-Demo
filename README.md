@@ -69,25 +69,25 @@ Everything on AKS is managed via ArgoCD with Sync Waves for proper dependency or
 
 ## POC Success Criteria
 
-### Web Traffic (App Gateway)
+### Web Traffic (via Front Door + Private Link)
 
 | ID | Criteria | Validation |
 |----|----------|------------|
-| SC-1 | App Gateway health probes succeed | Backend Health = "Healthy" |
-| SC-2 | `/healthz/ready` returns HTTP 200 | `curl -k https://<APP_GW_IP>/healthz/ready` |
+| SC-1 | Front Door health probes succeed | Origin Health = "Healthy" |
+| SC-2 | `/healthz/ready` returns HTTP 200 | `curl https://<FRONT_DOOR>.azurefd.net/healthz/ready` |
 | SC-3 | `/app1` routes to Sample App 1 | Returns "Hello from App 1" |
 | SC-4 | `/app2` routes to Sample App 2 | Returns "Hello from App 2" |
-| SC-5 | End-to-End TLS working | `curl -k https://<APP_GW_IP>/app1` |
+| SC-5 | Private Link connectivity working | No public IPs on backends |
 
-### API Traffic (APIM)
+### API Traffic (via Front Door + APIM + Private Link)
 
 | ID | Criteria | Validation |
 |----|----------|------------|
-| SC-6 | APIM `/api/v1/users` returns data | `curl https://apim-mtkc-poc.azure-api.net/api/v1/users` |
+| SC-6 | APIM `/api/v1/users` returns data | `curl https://<FRONT_DOOR>.azurefd.net/api/v1/users` |
 | SC-7 | API versioning works | Both `/api/v1/users` and `/api/v2/users` accessible |
 | SC-8 | ASO manages APIM APIs | `kubectl get api -n apim-config` shows API resources |
 
-### Infrastructure (Istio + ArgoCD)
+### Infrastructure (Istio + ArgoCD + Private Link)
 
 | ID | Criteria | Validation |
 |----|----------|------------|
@@ -95,6 +95,8 @@ Everything on AKS is managed via ArgoCD with Sync Waves for proper dependency or
 | SC-10 | ztunnel running | `kubectl get pods -n istio-system -l app=ztunnel` |
 | SC-11 | Using Gateway API | `kubectl get gateway,httproute -A` |
 | SC-12 | ArgoCD apps synced | `kubectl get applications -n argocd` all "Synced" |
+| SC-13 | Private Link Service active | `az network private-link-service list` shows service |
+| SC-14 | No public IPs on backends | Internal LB and APIM have no public exposure |
 
 ## Architecture
 
@@ -108,34 +110,29 @@ flowchart TB
     end
 
     subgraph Azure["Azure Cloud"]
-        subgraph CDN["Azure Front Door (Optional CDN)"]
-            FD["Front Door Premium<br/>*.azurefd.net"]
+        subgraph FrontDoor["Azure Front Door Premium (WAF + CDN)"]
+            FD["Front Door Premium<br/>*.azurefd.net<br/>🛡️ WAF + DDoS Protection"]
             FD_Static["/static/* → Blob Storage"]
-            FD_Web["/app*, /demo → App Gateway"]
+            FD_Web["/app*, /demo → Private Link"]
+            FD_API["/api/* → APIM Private Link"]
         end
 
         Blob["Azure Blob Storage<br/>(Static Assets)"]
 
-        subgraph PublicEntry["Public Entry Points (TLS Termination #1)"]
-            subgraph AppGWBox["Azure App Gateway (Web Traffic)"]
-                AppGW_IP["Public IP: 68.218.110.49"]
-                AppGW_Listener["HTTPS Listener :443"]
-                AppGW_TLS["TLS Termination"]
-                AppGW_Backend["Backend Pool: 10.0.1.x"]
-            end
-            subgraph APIMBox["Azure APIM (API Traffic)"]
-                APIM_URL["Public DNS: api.example.com"]
-                APIM_Listener["HTTPS Listener :443"]
-                APIM_TLS["TLS Termination"]
-                APIM_Backend["Backend Pool: 10.0.1.x"]
-                APIM_Features["• Rate Limiting  • API Versioning<br/>• Developer Portal  • Analytics"]
-            end
+        subgraph PrivateLink["Private Link (No Public Exposure)"]
+            PLS["Private Link Service<br/>→ Internal LB"]
+            APIM_PL["APIM Private Endpoint"]
+        end
+
+        subgraph APIMBox["Azure APIM (API Traffic)"]
+            APIM_Backend["Backend: Internal LB"]
+            APIM_Features["• Rate Limiting  • API Versioning<br/>• Developer Portal  • Analytics"]
         end
 
         subgraph AKS["AKS Cluster (Istio Ambient Mesh)"]
-            ILB["Internal Load Balancer<br/>10.0.1.x"]
+            ILB["Internal Load Balancer<br/>10.0.1.x<br/>(No Public IP)"]
 
-            subgraph Gateway["Istio Gateway (TLS Termination #2)"]
+            subgraph Gateway["Istio Gateway (TLS Termination)"]
                 GW["mtkc-gateway<br/>(K8s Gateway API)"]
             end
 
@@ -154,13 +151,14 @@ flowchart TB
     end
 
     WebClient -->|"HTTPS"| FD
+    APIClient -->|"HTTPS"| FD
     FD_Static -->|"Cached"| Blob
-    FD_Web --> AppGW_IP
-    WebClient -.->|"Direct (no CDN)"| AppGW_IP
-    APIClient -->|"HTTPS<br/>/api/v1/users<br/>/api/v2/users"| APIM_URL
+    FD_Web -->|"Private Link"| PLS
+    FD_API -->|"Private Link"| APIM_PL
 
-    AppGW_Backend -->|"HTTPS<br/>(re-encrypt)"| ILB
-    APIM_Backend -->|"HTTPS<br/>(re-encrypt)"| ILB
+    PLS --> ILB
+    APIM_PL --> APIMBox
+    APIM_Backend -->|"HTTPS"| ILB
 
     ILB -->|"HTTPS"| GW
     GW -->|"HTTP"| Routes
@@ -171,9 +169,9 @@ flowchart TB
     AllRoutes --> UsersAPI
 
     classDef internet fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    classDef cdn fill:#e8f5e9,stroke:#43a047,stroke-width:2px
+    classDef frontdoor fill:#e8f5e9,stroke:#43a047,stroke-width:2px
     classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    classDef appgw fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
+    classDef privatelink fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
     classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef ilb fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef gateway fill:#e8eaf6,stroke:#466bb0,stroke-width:2px
@@ -181,10 +179,10 @@ flowchart TB
     classDef apps fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 
     class WebClient,APIClient internet
-    class CDN,FD,FD_Static,FD_Web cdn
+    class FrontDoor,FD,FD_Static,FD_Web,FD_API frontdoor
     class Blob storage
-    class AppGWBox,AppGW_IP,AppGW_Listener,AppGW_TLS,AppGW_Backend appgw
-    class APIMBox,APIM_URL,APIM_Listener,APIM_TLS,APIM_Backend,APIM_Features apim
+    class PrivateLink,PLS,APIM_PL privatelink
+    class APIMBox,APIM_Backend,APIM_Features apim
     class ILB ilb
     class GW gateway
     class AllRoutes routes
@@ -195,12 +193,13 @@ flowchart TB
 
 | Traffic Type | Entry Point | Path | Backend |
 |--------------|-------------|------|---------|
-| **Web Traffic** | App Gateway | `/app1`, `/app2` | sample-app-1, sample-app-2 |
-| **Health Probes** | App Gateway | `/healthz/*` | health-responder |
-| **API Traffic (v1)** | APIM | `/api/v1/users` | sample-api |
-| **API Traffic (v2)** | APIM | `/api/v2/users` | sample-api (or sample-api-v2) |
+| **Web Traffic** | Front Door → Private Link | `/app1`, `/app2`, `/demo` | sample-app-1, sample-app-2, demo-web |
+| **Health Probes** | Front Door → Private Link | `/healthz/*` | health-responder |
+| **API Traffic (v1)** | Front Door → APIM → Private Link | `/api/v1/users` | users-api |
+| **API Traffic (v2)** | Front Door → APIM → Private Link | `/api/v2/users` | users-api |
+| **Static Assets** | Front Door → Blob Storage | `/static/*` | Cached at edge |
 
-> **API Versioning:** APIM handles version routing externally. The backend receives requests on `/api/*` (version-agnostic). This allows API version changes without modifying K8s HTTPRoutes.
+> **All traffic flows through Front Door (WAF)** → Private Link → backends. No public IPs on Internal LB or APIM. Traffic never leaves Azure backbone.
 
 ### End-to-End TLS Flow (Detailed)
 
@@ -208,33 +207,37 @@ flowchart TB
 sequenceDiagram
     autonumber
     participant Client
-    participant AppGW as App Gateway<br/>(TLS Termination #1)
+    participant FD as Front Door<br/>(TLS Termination #1)
+    participant PL as Private Link
     participant IstioGW as Istio Gateway<br/>(TLS Termination #2)
     participant Pod as Backend Pod
 
-    Client->>+AppGW: HTTPS Request (TLS 1.2/1.3)
-    Note over AppGW: Decrypt with appgw.pfx<br/>CN=mtkc-poc.local
+    Client->>+FD: HTTPS Request (TLS 1.2/1.3)
+    Note over FD: Azure-managed cert<br/>*.azurefd.net
 
-    AppGW->>+IstioGW: HTTPS (re-encrypted)<br/>Host: mtkc-gateway.istio-ingress.svc.cluster.local
+    FD->>+PL: Private Link Connection
+    Note over PL: Traffic on Azure backbone<br/>(never public internet)
+
+    PL->>+IstioGW: HTTPS (re-encrypted)<br/>Host: mtkc-gateway.istio-ingress.svc.cluster.local
     Note over IstioGW: Decrypt with istio-gw.crt<br/>CN=mtkc-gateway.istio-ingress.svc.cluster.local
 
     IstioGW->>+Pod: HTTP (plain)<br/>via ClusterIP:8080
     Pod-->>-IstioGW: Response
-    IstioGW-->>-AppGW: HTTPS Response
-    AppGW-->>-Client: HTTPS Response
+    IstioGW-->>-PL: HTTPS Response
+    PL-->>-FD: Private Link Response
+    FD-->>-Client: HTTPS Response
 ```
 
 #### Certificate Chain
 
 | TLS Termination | Certificate | CN | Signed By | Purpose |
 |-----------------|-------------|-----|-----------|---------|
-| **#1a App Gateway** | `appgw.pfx` | mtkc-poc.local | MTKC-POC-CA | Frontend HTTPS listener (Web) |
-| **#1b APIM** | Azure-managed or custom | api.example.com | Public CA or custom | Frontend HTTPS listener (API) |
-| **#2 Istio Gateway** | `istio-gw.crt` | mtkc-gateway.istio-ingress.svc.cluster.local | MTKC-POC-CA | Backend TLS (shared) |
+| **#1 Front Door** | Azure-managed | *.azurefd.net | DigiCert | Frontend HTTPS (all traffic) |
+| **#2 Istio Gateway** | `istio-gw.crt` | mtkc-gateway.istio-ingress.svc.cluster.local | MTKC-POC-CA | Backend TLS via Private Link |
 
-> **Shared Backend Certificate:** Both App Gateway and APIM connect to the same Istio Gateway backend using the same TLS certificate (`istio-gw.crt`). Both must trust the same CA (`ca.crt`) to validate the backend certificate.
+> **Simplified Certificate Management:** Front Door uses Azure-managed certificates. Only the backend certificate (`istio-gw.crt`) needs to be managed.
 
-#### Backend TLS Settings (Shared by App Gateway & APIM)
+#### Backend TLS Settings (Front Door → Private Link)
 
 | Setting | Value | Notes |
 |---------|-------|-------|
@@ -242,20 +245,13 @@ sequenceDiagram
 | Port | 443 | Istio Gateway HTTPS port |
 | Host Header | `mtkc-gateway.istio-ingress.svc.cluster.local` | Must match certificate CN |
 | Backend Certificate | `istio-gw.crt` | Presented by Istio Gateway |
-| Trusted Root CA | `ca.crt` (MTKC-POC-CA) | Must be uploaded to both App Gateway and APIM |
+| Connection | Private Link Service | No public IP required |
 
-#### App Gateway Specific Settings
-
-| Setting | Value |
-|---------|-------|
-| Frontend Certificate | `appgw.pfx` |
-| Health Probe | HTTPS GET `/healthz/ready` |
-
-#### APIM Specific Settings
+#### APIM Settings (via Private Endpoint)
 
 | Setting | Value |
 |---------|-------|
-| Frontend Certificate | Azure-managed or custom cert |
+| Frontend | Accessed via Front Door Private Link |
 | Backend URL | `https://10.0.1.x` (Internal LB IP) |
 | Validate Certificate Chain | Enabled |
 | Validate Certificate Name | Enabled |
@@ -339,15 +335,15 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph Step1["1. Client Request"]
-        Client["curl -k https://68.218.110.49/app1"]
+        Client["curl https://mtkc-poc.azurefd.net/app1"]
     end
 
-    subgraph Step2["2. App Gateway Frontend"]
-        AGW["Public IP: 68.218.110.49<br/>Listener: https-listener:443<br/>TLS Termination #1"]
+    subgraph Step2["2. Front Door (WAF)"]
+        FD["Front Door Premium<br/>🛡️ WAF inspection<br/>TLS Termination #1"]
     end
 
-    subgraph Step3["3. App Gateway Backend"]
-        Backend["Backend Pool: aks-gateway-pool<br/>Target: 10.0.1.x (Internal LB)<br/>Protocol: HTTPS:443<br/>Host Header: mtkc-gateway.istio-ingress.svc.cluster.local"]
+    subgraph Step3["3. Private Link"]
+        PL["Private Link Service<br/>Azure backbone routing<br/>(No public internet)"]
     end
 
     subgraph Step4["4. Azure Internal LB"]
@@ -366,22 +362,24 @@ flowchart TB
         Pod["sample-app-1 (nginx)<br/>Port: 8080<br/>Returns: Hello from App 1!"]
     end
 
-    Client -->|"HTTPS"| AGW
-    AGW -->|"Re-encrypt HTTPS"| Backend
-    Backend --> ILB
+    Client -->|"HTTPS"| FD
+    FD -->|"Private Link"| PL
+    PL -->|"HTTPS"| ILB
     ILB --> Gateway
     Gateway --> Route
     Route -->|"HTTP"| Pod
 
     classDef client fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#333
-    classDef appgw fill:#e6f2ff,stroke:#0078d4,stroke-width:2px,color:#333
+    classDef frontdoor fill:#e8f5e9,stroke:#43a047,stroke-width:2px,color:#333
+    classDef privatelink fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#333
     classDef ilb fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#333
     classDef istio fill:#e8eaf6,stroke:#466bb0,stroke-width:2px,color:#333
     classDef route fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#333
     classDef backend fill:#f1f8e9,stroke:#388e3c,stroke-width:2px,color:#333
 
     class Step1 client
-    class Step2,Step3 appgw
+    class Step2 frontdoor
+    class Step3 privatelink
     class Step4 ilb
     class Step5 istio
     class Step6 route
@@ -393,16 +391,21 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph Azure["AZURE"]
-        APIM["Azure APIM<br/>apim-mtkc-poc<br/>API Traffic Entry Point"]
+        FD["Azure Front Door Premium<br/>🛡️ WAF + CDN<br/>*.azurefd.net"]
 
         subgraph VNet["VNet: vnet-mtkc-poc (10.0.0.0/16)"]
-            subgraph AppGWSubnet["Subnet: appgw-subnet (10.0.0.0/24)"]
-                AppGW["Application Gateway<br/>appgw-mtkc-poc<br/>Public IP: 68.218.110.49<br/>Private IP: 10.0.0.x<br/>NSG: Allow 80, 443"]
+            subgraph PLSubnet["Subnet: private-link-subnet (10.0.2.0/24)"]
+                PLS["Private Link Service<br/>→ Internal LB"]
+                APIM_PE["APIM Private Endpoint"]
+            end
+
+            subgraph APIMSubnet["Subnet: apim-subnet (10.0.3.0/24)"]
+                APIM["Azure APIM<br/>apim-mtkc-poc<br/>(No Public IP)"]
             end
 
             subgraph AKSSubnet["Subnet: aks-subnet (10.0.1.0/24)"]
                 subgraph AKS["AKS Cluster: aks-mtkc-poc"]
-                    ILB["Internal LB: 10.0.1.x"]
+                    ILB["Internal LB: 10.0.1.x<br/>(No Public IP)"]
 
                     subgraph Pods["Pods"]
                         GWPod["istio-ingress/<br/>mtkc-gateway-istio"]
@@ -417,10 +420,12 @@ flowchart TB
         end
     end
 
-    Internet(["Internet"]) -->|"Web Traffic<br/>HTTPS:443"| AppGW
-    Internet -->|"API Traffic<br/>HTTPS:443"| APIM
-    AppGW -->|"HTTPS:443"| ILB
-    APIM -->|"HTTPS:443<br/>/api/*"| ILB
+    Internet(["Internet"]) -->|"All Traffic<br/>HTTPS:443"| FD
+    FD -->|"Web Traffic<br/>Private Link"| PLS
+    FD -->|"API Traffic<br/>Private Link"| APIM_PE
+    APIM_PE --> APIM
+    PLS --> ILB
+    APIM -->|"HTTPS:443"| ILB
     ILB --> GWPod
     GWPod --> HealthPod
     GWPod --> App1Pod
@@ -429,6 +434,8 @@ flowchart TB
     ZtPod -.->|"mTLS"| Pods
 
     classDef azure fill:#e6f2ff,stroke:#0078d4,stroke-width:2px,color:#333
+    classDef frontdoor fill:#e8f5e9,stroke:#43a047,stroke-width:2px,color:#333
+    classDef privatelink fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#333
     classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#333
     classDef vnet fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#333
     classDef subnet fill:#e8f4fd,stroke:#1976d2,stroke-width:2px,color:#333
@@ -436,9 +443,11 @@ flowchart TB
     classDef pods fill:#f5f5f5,stroke:#757575,stroke-width:1px,color:#333
 
     class Azure azure
-    class APIM apim
+    class FD frontdoor
+    class PLSubnet,PLS,APIM_PE privatelink
+    class APIM,APIMSubnet apim
     class VNet vnet
-    class AppGWSubnet,AKSSubnet subnet
+    class AKSSubnet subnet
     class AKS aks
     class Pods pods
 ```
@@ -448,10 +457,11 @@ flowchart TB
 | Resource | CIDR / IP |
 |----------|-----------|
 | VNet | `10.0.0.0/16` |
-| App Gateway Subnet | `10.0.0.0/24` |
 | AKS Subnet | `10.0.1.0/24` |
-| Internal Load Balancer | `10.0.1.x` |
-| App Gateway Public IP | `68.218.110.49` |
+| Private Link Subnet | `10.0.2.0/24` |
+| APIM Subnet | `10.0.3.0/24` |
+| Internal Load Balancer | `10.0.1.x` (No Public IP) |
+| Entry Point | Front Door (*.azurefd.net) |
 
 ## Quick Start
 
@@ -825,42 +835,45 @@ kubectl get secret istio-gateway-tls -n istio-ingress
 
 ## Access URLs
 
-After successful deployment:
+After successful deployment, all traffic goes through Azure Front Door:
 
-### Web Traffic (via App Gateway)
-
-Use `-k` flag with curl for self-signed certificates:
+### Web Traffic (via Front Door + Private Link)
 
 | Endpoint | URL |
 |----------|-----|
-| Health Check | `https://<APP_GW_IP>/healthz/ready` |
-| App 1 | `https://<APP_GW_IP>/app1` |
-| App 2 | `https://<APP_GW_IP>/app2` |
+| Health Check | `https://<FRONT_DOOR>.azurefd.net/healthz/ready` |
+| App 1 | `https://<FRONT_DOOR>.azurefd.net/app1` |
+| App 2 | `https://<FRONT_DOOR>.azurefd.net/app2` |
+| Demo Web | `https://<FRONT_DOOR>.azurefd.net/demo` |
 
 ```bash
-# Get App Gateway IP
-cd terraform && terraform output appgw_public_ip
+# Get Front Door endpoint
+cd terraform && terraform output front_door_endpoint_url
 
-# Test
-curl -k https://<APP_GW_IP>/app1
+# Test (Azure-managed certificates - no -k needed)
+curl https://mtkc-poc-endpoint.azurefd.net/app1
 ```
 
-### API Traffic (via APIM)
+### API Traffic (via Front Door + APIM + Private Link)
 
 | Endpoint | URL |
 |----------|-----|
-| Users API v1 | `https://apim-mtkc-poc.azure-api.net/api/v1/users` |
-| Users API v2 | `https://apim-mtkc-poc.azure-api.net/api/v2/users` |
+| Users API v1 | `https://<FRONT_DOOR>.azurefd.net/api/v1/users` |
+| Users API v2 | `https://<FRONT_DOOR>.azurefd.net/api/v2/users` |
 
 ```bash
-# Get APIM Gateway URL
-cd terraform && terraform output apim_gateway_url
-
-# Test (no -k needed - APIM uses valid Azure certificate)
-curl https://apim-mtkc-poc.azure-api.net/api/v1/users
+# Test API via Front Door
+curl https://mtkc-poc-endpoint.azurefd.net/api/v1/users
 ```
 
-**Note:** HTTP requests to App Gateway port 80 are automatically redirected to HTTPS (301).
+### Static Assets (via Front Door + Blob Storage)
+
+| Endpoint | URL |
+|----------|-----|
+| CSS | `https://<FRONT_DOOR>.azurefd.net/static/css/styles.css` |
+| Images | `https://<FRONT_DOOR>.azurefd.net/static/images/logo.svg` |
+
+**Note:** All endpoints use Azure-managed TLS certificates. HTTP requests are automatically redirected to HTTPS.
 
 ---
 
@@ -885,11 +898,17 @@ flowchart TB
     end
 
     subgraph Azure["Azure Cloud"]
-        AppGW["Azure App Gateway<br/>(Public IP)<br/>Web Traffic"]
-        APIM["Kong / Azure APIM<br/>(+ WAF)<br/>API Traffic"]
+        FD["Azure Front Door Premium<br/>🛡️ WAF + CDN<br/>*.azurefd.net"]
+
+        subgraph PrivateConnections["Private Link Connections"]
+            PLS["Private Link Service"]
+            APIM_PE["APIM Private Endpoint"]
+        end
+
+        APIM["Azure APIM<br/>API Traffic"]
 
         subgraph AKS["AKS Cluster"]
-            ILB["Internal Load Balancer<br/>10.0.1.x<br/>(Shared)"]
+            ILB["Internal Load Balancer<br/>10.0.1.x<br/>(No Public IP)"]
 
             subgraph Gateway["Istio Gateway (K8s Gateway API)"]
                 GW["mtkc-gateway"]
@@ -907,10 +926,14 @@ flowchart TB
         end
     end
 
-    WebClient -->|"HTTPS"| AppGW
-    APIClient -->|"HTTPS"| APIM
+    WebClient -->|"HTTPS"| FD
+    APIClient -->|"HTTPS"| FD
 
-    AppGW -->|"HTTPS<br/>(istio-gw.crt)"| ILB
+    FD -->|"/app*, /demo"| PLS
+    FD -->|"/api/*"| APIM_PE
+
+    PLS -->|"Private Link"| ILB
+    APIM_PE --> APIM
     APIM -->|"HTTPS<br/>(istio-gw.crt)"| ILB
 
     ILB --> GW
@@ -919,42 +942,37 @@ flowchart TB
     APIRoutes --> APIs
 
     classDef internet fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    classDef azure fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
+    classDef frontdoor fill:#e8f5e9,stroke:#43a047,stroke-width:2px
+    classDef privatelink fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef ilb fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef gateway fill:#e8eaf6,stroke:#466bb0,stroke-width:2px
     classDef routes fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef apps fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 
     class WebClient,APIClient internet
-    class AppGW,APIM azure
+    class FD frontdoor
+    class PrivateConnections,PLS,APIM_PE privatelink
+    class APIM apim
     class ILB ilb
     class GW gateway
     class WebRoutes,APIRoutes routes
     class WebApps,APIs apps
 ```
 
-### TLS Certificate Reuse
+### TLS Certificate Configuration
 
-**The same `istio-gw.crt` is used for both App Gateway and Kong/APIM:**
+**Backend certificate used for Private Link connections:**
 
-| Entry Point | Backend TLS Cert | Trusted Root CA |
-|-------------|------------------|-----------------|
-| App Gateway → Internal LB | `istio-gw.crt` | `ca.crt` (configured in App Gateway) |
-| Kong/APIM → Internal LB | `istio-gw.crt` | `ca.crt` (upload to Kong/APIM) |
+| Connection | Backend TLS Cert | Notes |
+|------------|------------------|-------|
+| Front Door → Private Link → Internal LB | `istio-gw.crt` | Presented by Istio Gateway |
+| APIM → Internal LB | `istio-gw.crt` | Same backend certificate |
 
-Configure your API Gateway to trust the CA:
-
-**Kong:**
-```yaml
-# kong.conf
-upstream_ssl_trusted_certificate = /path/to/ca.crt
-upstream_ssl_verify = on
-```
-
-**Azure APIM:**
-1. Go to APIM → Backends → Add backend
-2. Set Gateway URL to Internal LB IP (same as App Gateway backend)
-3. Upload `ca.crt` as trusted root certificate
+**Certificate Management:**
+- Front Door uses Azure-managed certificates (no custom certs needed)
+- Only `istio-gw.crt` needs to be managed for the Istio Gateway
+- APIM must trust `ca.crt` to validate backend connections
 
 ### Sample API Service
 
@@ -1077,7 +1095,7 @@ Commit and push - ArgoCD syncs automatically.
 
 ## Azure Front Door + Blob Storage (CDN Caching)
 
-Similar to the AWS CloudFront + S3 pattern, this POC includes Azure Front Door for CDN caching with Azure Blob Storage for static assets.
+Similar to the AWS CloudFront + S3 pattern, this architecture uses Azure Front Door Premium for CDN caching with Azure Blob Storage for static assets, and Private Link for secure backend connectivity.
 
 ### Architecture Overview
 
@@ -1085,57 +1103,76 @@ Similar to the AWS CloudFront + S3 pattern, this POC includes Azure Front Door f
 flowchart TB
     subgraph Internet["Internet"]
         Browser(["Web Browser"])
+        APIClient(["API Client"])
     end
 
     subgraph Azure["Azure Cloud"]
-        subgraph FrontDoor["Azure Front Door Premium"]
+        subgraph FrontDoor["Azure Front Door Premium (WAF + CDN)"]
             FD_EP["Endpoint: mtkc-poc-endpoint.azurefd.net"]
             FD_Rules["Route Rules"]
         end
 
-        subgraph Origins["Origin Groups"]
+        subgraph Origins["Origin Groups (Private Link)"]
             StaticOrigin["Static Assets Origin<br/>(Blob Storage)"]
-            AppOrigin["App Origin<br/>(App Gateway)"]
+            WebOrigin["Web Origin<br/>(Private Link → ILB)"]
+            APIOrigin["API Origin<br/>(Private Link → APIM)"]
         end
 
         Blob["Azure Blob Storage<br/>Static Website<br/>/static/*"]
-        AppGW["Azure App Gateway<br/>/app*, /demo, /*"]
+
+        subgraph PrivateLink["Private Link (No Public IPs)"]
+            PLS["Private Link Service"]
+            APIM_PE["APIM Private Endpoint"]
+        end
+
+        APIM["Azure APIM<br/>/api/*"]
 
         subgraph AKS["AKS Cluster"]
-            DemoWeb["demo-web<br/>Displays images from<br/>Blob Storage"]
+            ILB["Internal LB"]
+            DemoWeb["demo-web"]
+            UsersAPI["users-api"]
         end
     end
 
     Browser -->|"HTTPS"| FD_EP
+    APIClient -->|"HTTPS"| FD_EP
     FD_EP --> FD_Rules
     FD_Rules -->|"/static/*<br/>Cache: 1 year"| StaticOrigin
-    FD_Rules -->|"/app*, /demo, /*<br/>No cache"| AppOrigin
+    FD_Rules -->|"/app*, /demo<br/>No cache"| WebOrigin
+    FD_Rules -->|"/api/*<br/>No cache"| APIOrigin
     StaticOrigin --> Blob
-    AppOrigin --> AppGW
-    AppGW --> DemoWeb
+    WebOrigin --> PLS
+    APIOrigin --> APIM_PE
+    PLS --> ILB
+    APIM_PE --> APIM
+    APIM --> ILB
+    ILB --> DemoWeb
+    ILB --> UsersAPI
 
     classDef fd fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    classDef appgw fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
+    classDef privatelink fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef aks fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 
     class FrontDoor,FD_EP,FD_Rules fd
     class Blob,StaticOrigin storage
-    class AppGW,AppOrigin appgw
-    class AKS,DemoWeb aks
+    class PrivateLink,PLS,APIM_PE,WebOrigin,APIOrigin privatelink
+    class APIM apim
+    class AKS,ILB,DemoWeb,UsersAPI aks
 ```
 
 ### Traffic Routing
 
-| Path | Origin | Caching | Use Case |
-|------|--------|---------|----------|
-| `/static/*` | Blob Storage | 1 year (31536000s) | CSS, JS, images, fonts |
-| `/app*`, `/demo`, `/*` | App Gateway | No cache | Dynamic web applications |
-| `/api/*` | APIM (direct or via Front Door) | Varies | API traffic (see guidance below) |
+| Path | Origin | Connection | Caching | Use Case |
+|------|--------|------------|---------|----------|
+| `/static/*` | Blob Storage | Direct | 1 year | CSS, JS, images, fonts |
+| `/app*`, `/demo` | Internal LB | Private Link | No cache | Dynamic web applications |
+| `/api/*` | APIM | Private Link | No cache | API traffic (WAF protected) |
 
-### Front Door + APIM: When to Use
+> **All traffic flows through Front Door (WAF)** → Private Link → backends. No public IPs exposed on any backend service.
 
-The decision to put Front Door in front of APIM depends on your requirements:
+### Why Private Link for All Traffic
 
 | Requirement | Recommendation |
 |-------------|----------------|
