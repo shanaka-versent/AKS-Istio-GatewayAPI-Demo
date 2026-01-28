@@ -89,25 +89,22 @@ flowchart TB
     end
 
     subgraph Azure["Azure Cloud"]
-        subgraph CDN["Azure Front Door (Optional CDN)"]
-            FD["Front Door Premium<br/>*.azurefd.net"]
+        subgraph FrontDoor["Azure Front Door (WAF + CDN)"]
+            FD["Front Door Premium<br/>*.azurefd.net<br/>🛡️ WAF Protection"]
             FD_Static["/static/* → Blob Storage"]
             FD_Web["/app*, /demo → App Gateway"]
+            FD_API["/api/* → APIM"]
         end
 
         Blob["Azure Blob Storage<br/>(Static Assets)"]
 
-        subgraph PublicEntry["Public Entry Points (TLS Termination #1)"]
+        subgraph Backends["Backend Services (TLS Termination #1)"]
             subgraph AppGWBox["Azure App Gateway (Web Traffic)"]
                 AppGW_IP["Public IP: 68.218.110.49"]
-                AppGW_Listener["HTTPS Listener :443"]
-                AppGW_TLS["TLS Termination"]
                 AppGW_Backend["Backend Pool: 10.0.1.x"]
             end
             subgraph APIMBox["Azure APIM (API Traffic)"]
-                APIM_URL["Public DNS: api.example.com"]
-                APIM_Listener["HTTPS Listener :443"]
-                APIM_TLS["TLS Termination"]
+                APIM_URL["apim-mtkc-poc.azure-api.net"]
                 APIM_Backend["Backend Pool: 10.0.1.x"]
                 APIM_Features["• Rate Limiting  • API Versioning<br/>• Developer Portal  • Analytics"]
             end
@@ -135,10 +132,10 @@ flowchart TB
     end
 
     WebClient -->|"HTTPS"| FD
+    APIClient -->|"HTTPS"| FD
     FD_Static -->|"Cached"| Blob
     FD_Web --> AppGW_IP
-    WebClient -.->|"Direct (no CDN)"| AppGW_IP
-    APIClient -->|"HTTPS<br/>/api/v1/users<br/>/api/v2/users"| APIM_URL
+    FD_API --> APIM_URL
 
     AppGW_Backend -->|"HTTPS<br/>(re-encrypt)"| ILB
     APIM_Backend -->|"HTTPS<br/>(re-encrypt)"| ILB
@@ -152,7 +149,7 @@ flowchart TB
     AllRoutes --> UsersAPI
 
     classDef internet fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    classDef cdn fill:#e8f5e9,stroke:#43a047,stroke-width:2px
+    classDef frontdoor fill:#e8f5e9,stroke:#43a047,stroke-width:2px
     classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef appgw fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
     classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px
@@ -162,10 +159,10 @@ flowchart TB
     classDef apps fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 
     class WebClient,APIClient internet
-    class CDN,FD,FD_Static,FD_Web cdn
+    class FrontDoor,FD,FD_Static,FD_Web,FD_API frontdoor
     class Blob storage
-    class AppGWBox,AppGW_IP,AppGW_Listener,AppGW_TLS,AppGW_Backend appgw
-    class APIMBox,APIM_URL,APIM_Listener,APIM_TLS,APIM_Backend,APIM_Features apim
+    class AppGWBox,AppGW_IP,AppGW_Backend appgw
+    class APIMBox,APIM_URL,APIM_Backend,APIM_Features apim
     class ILB ilb
     class GW gateway
     class AllRoutes routes
@@ -374,7 +371,9 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph Azure["AZURE"]
-        APIM["Azure APIM<br/>apim-mtkc-poc<br/>API Traffic Entry Point"]
+        FD["Azure Front Door<br/>🛡️ WAF + CDN<br/>*.azurefd.net"]
+
+        APIM["Azure APIM<br/>apim-mtkc-poc"]
 
         subgraph VNet["VNet: vnet-mtkc-poc (10.0.0.0/16)"]
             subgraph AppGWSubnet["Subnet: appgw-subnet (10.0.0.0/24)"]
@@ -398,10 +397,11 @@ flowchart TB
         end
     end
 
-    Internet(["Internet"]) -->|"Web Traffic<br/>HTTPS:443"| AppGW
-    Internet -->|"API Traffic<br/>HTTPS:443"| APIM
+    Internet(["Internet"]) -->|"All Traffic<br/>HTTPS:443"| FD
+    FD -->|"Web Traffic<br/>/app*, /demo"| AppGW
+    FD -->|"API Traffic<br/>/api/*"| APIM
     AppGW -->|"HTTPS:443"| ILB
-    APIM -->|"HTTPS:443<br/>/api/*"| ILB
+    APIM -->|"HTTPS:443"| ILB
     ILB --> GWPod
     GWPod --> HealthPod
     GWPod --> App1Pod
@@ -410,6 +410,7 @@ flowchart TB
     ZtPod -.->|"mTLS"| Pods
 
     classDef azure fill:#e6f2ff,stroke:#0078d4,stroke-width:2px,color:#333
+    classDef frontdoor fill:#e8f5e9,stroke:#43a047,stroke-width:2px,color:#333
     classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#333
     classDef vnet fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#333
     classDef subnet fill:#e8f4fd,stroke:#1976d2,stroke-width:2px,color:#333
@@ -417,6 +418,7 @@ flowchart TB
     classDef pods fill:#f5f5f5,stroke:#757575,stroke-width:1px,color:#333
 
     class Azure azure
+    class FD frontdoor
     class APIM apim
     class VNet vnet
     class AppGWSubnet,AKSSubnet subnet
@@ -866,8 +868,10 @@ flowchart TB
     end
 
     subgraph Azure["Azure Cloud"]
-        AppGW["Azure App Gateway<br/>(Public IP)<br/>Web Traffic"]
-        APIM["Kong / Azure APIM<br/>(+ WAF)<br/>API Traffic"]
+        FD["Azure Front Door<br/>🛡️ WAF + CDN<br/>*.azurefd.net"]
+
+        AppGW["Azure App Gateway<br/>Web Traffic"]
+        APIM["Azure APIM<br/>API Traffic"]
 
         subgraph AKS["AKS Cluster"]
             ILB["Internal Load Balancer<br/>10.0.1.x<br/>(Shared)"]
@@ -888,8 +892,11 @@ flowchart TB
         end
     end
 
-    WebClient -->|"HTTPS"| AppGW
-    APIClient -->|"HTTPS"| APIM
+    WebClient -->|"HTTPS"| FD
+    APIClient -->|"HTTPS"| FD
+
+    FD -->|"/app*, /demo"| AppGW
+    FD -->|"/api/*"| APIM
 
     AppGW -->|"HTTPS<br/>(istio-gw.crt)"| ILB
     APIM -->|"HTTPS<br/>(istio-gw.crt)"| ILB
@@ -900,6 +907,7 @@ flowchart TB
     APIRoutes --> APIs
 
     classDef internet fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef frontdoor fill:#e8f5e9,stroke:#43a047,stroke-width:2px
     classDef azure fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
     classDef ilb fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef gateway fill:#e8eaf6,stroke:#466bb0,stroke-width:2px
@@ -907,6 +915,7 @@ flowchart TB
     classDef apps fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 
     class WebClient,APIClient internet
+    class FD frontdoor
     class AppGW,APIM azure
     class ILB ilb
     class GW gateway
@@ -1066,10 +1075,11 @@ Similar to the AWS CloudFront + S3 pattern, this POC includes Azure Front Door f
 flowchart TB
     subgraph Internet["Internet"]
         Browser(["Web Browser"])
+        APIClient(["API Client"])
     end
 
     subgraph Azure["Azure Cloud"]
-        subgraph FrontDoor["Azure Front Door Premium"]
+        subgraph FrontDoor["Azure Front Door Premium (WAF + CDN)"]
             FD_EP["Endpoint: mtkc-poc-endpoint.azurefd.net"]
             FD_Rules["Route Rules"]
         end
@@ -1077,32 +1087,41 @@ flowchart TB
         subgraph Origins["Origin Groups"]
             StaticOrigin["Static Assets Origin<br/>(Blob Storage)"]
             AppOrigin["App Origin<br/>(App Gateway)"]
+            APIOrigin["API Origin<br/>(APIM)"]
         end
 
         Blob["Azure Blob Storage<br/>Static Website<br/>/static/*"]
-        AppGW["Azure App Gateway<br/>/app*, /demo, /*"]
+        AppGW["Azure App Gateway<br/>/app*, /demo"]
+        APIM["Azure APIM<br/>/api/*"]
 
         subgraph AKS["AKS Cluster"]
             DemoWeb["demo-web<br/>Displays images from<br/>Blob Storage"]
+            UsersAPI["users-api"]
         end
     end
 
     Browser -->|"HTTPS"| FD_EP
+    APIClient -->|"HTTPS"| FD_EP
     FD_EP --> FD_Rules
     FD_Rules -->|"/static/*<br/>Cache: 1 year"| StaticOrigin
-    FD_Rules -->|"/app*, /demo, /*<br/>No cache"| AppOrigin
+    FD_Rules -->|"/app*, /demo<br/>No cache"| AppOrigin
+    FD_Rules -->|"/api/*<br/>No cache"| APIOrigin
     StaticOrigin --> Blob
     AppOrigin --> AppGW
+    APIOrigin --> APIM
     AppGW --> DemoWeb
+    APIM --> UsersAPI
 
     classDef fd fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef appgw fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
+    classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef aks fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 
     class FrontDoor,FD_EP,FD_Rules fd
     class Blob,StaticOrigin storage
     class AppGW,AppOrigin appgw
+    class APIM,APIOrigin apim
     class AKS,DemoWeb aks
 ```
 
@@ -1111,12 +1130,14 @@ flowchart TB
 | Path | Origin | Caching | Use Case |
 |------|--------|---------|----------|
 | `/static/*` | Blob Storage | 1 year (31536000s) | CSS, JS, images, fonts |
-| `/app*`, `/demo`, `/*` | App Gateway | No cache | Dynamic web applications |
-| `/api/*` | APIM (direct or via Front Door) | Varies | API traffic (see guidance below) |
+| `/app*`, `/demo` | App Gateway | No cache | Dynamic web applications |
+| `/api/*` | APIM | No cache | API traffic (WAF protected via Front Door) |
 
-### Front Door + APIM: When to Use
+> **All traffic flows through Front Door (WAF)** → appropriate backend origin. This ensures consistent WAF protection across all traffic types.
 
-The decision to put Front Door in front of APIM depends on your requirements:
+### Front Door + APIM: Architecture Benefits
+
+This architecture uses Front Door in front of APIM for these reasons:
 
 | Requirement | Recommendation |
 |-------------|----------------|
