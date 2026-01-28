@@ -6,18 +6,7 @@ This reference architecture demonstrates a secure, production-ready deployment p
 
 Kubernetes Gateway API provides a superior approach to multi-tenancy compared to legacy Ingress controllers. With Gateway API, a single shared Gateway serves as the centralized entry point, while individual HTTPRoutes in each tenant's namespace define their own routing rules.
 
----
-
-## 🔀 Branch Architecture
-
-This repository has two branches with different architectures:
-
-| Branch | Architecture | Use Case | Cost |
-|--------|--------------|----------|------|
-| **`argocd-integration`** | Front Door → App Gateway → Internal LB | POC, Development, Cost-sensitive | ~$335/mo |
-| **`reference-architecture`** (this branch) | Front Door → Private Link → Internal LB | Production, Enterprise, Security-first | ~$380/mo |
-
-### This Branch: `reference-architecture` (Production Architecture)
+## Architecture Summary
 
 ```
 Internet → Front Door Premium (WAF) → Private Link → Internal LB → Istio Gateway → Apps
@@ -25,24 +14,11 @@ Internet → Front Door Premium (WAF) → Private Link → APIM → Internal LB 
 Internet → Front Door Premium (CDN) → Blob Storage (Static Assets - Cached)
 ```
 
-**Why This Architecture:**
+**Key Benefits:**
 - ✅ **Zero public exposure** - No public IPs on Internal LB or APIM
 - ✅ **Traffic stays on Azure backbone** - Never traverses public internet
 - ✅ **Simpler architecture** - No App Gateway needed (Front Door handles WAF)
 - ✅ **Enterprise-grade security** - Advanced WAF, bot protection, DDoS at edge
-- ✅ **Similar cost** - App Gateway elimination offsets Premium SKU cost
-
-### POC Branch: `argocd-integration`
-
-```
-Internet → Front Door → App Gateway → Internal LB → Istio Gateway → Apps
-Internet → Front Door → APIM → Internal LB → Istio Gateway → APIs
-```
-
-**Characteristics:**
-- Lower cost option (Front Door Standard)
-- App Gateway and APIM have public endpoints (can be bypassed)
-- Good for development and cost-sensitive scenarios
 
 ---
 
