@@ -1,16 +1,58 @@
-# AKS POC - Azure Application Gateway Integration with Kubernetes Gateway API for Multitenancy
+# AKS Reference Architecture - Azure Front Door + Private Link + Kubernetes Gateway API
 
-This POC validates Azure Application Gateway integration with Kubernetes Gateway API on AKS with Istio Ambient Mesh.
+> **🏢 Production-Ready Architecture** - This branch implements enterprise-grade security with Azure Private Link, eliminating public exposure on all backend services.
 
-Kubernetes Gateway API provides a superior approach to multi-tenancy compared to legacy Ingress controllers. With Gateway API, a single shared Gateway serves as the centralized entry point, while individual HTTPRoutes in each tenant's namespace define their own routing rules. This eliminates the need to deploy separate Ingress controllers per tenant, reducing infrastructure overhead, simplifying operations, and enabling consistent traffic policies across all tenants through a unified control plane.
+This reference architecture demonstrates a secure, production-ready deployment pattern using Azure Front Door Premium with Private Link connectivity to AKS and APIM. Traffic never traverses the public internet between Front Door and backend services.
+
+Kubernetes Gateway API provides a superior approach to multi-tenancy compared to legacy Ingress controllers. With Gateway API, a single shared Gateway serves as the centralized entry point, while individual HTTPRoutes in each tenant's namespace define their own routing rules.
+
+---
+
+## 🔀 Branch Architecture
+
+This repository has two branches with different architectures:
+
+| Branch | Architecture | Use Case | Cost |
+|--------|--------------|----------|------|
+| **`argocd-integration`** | Front Door → App Gateway → Internal LB | POC, Development, Cost-sensitive | ~$335/mo |
+| **`reference-architecture`** (this branch) | Front Door → Private Link → Internal LB | Production, Enterprise, Security-first | ~$380/mo |
+
+### This Branch: `reference-architecture` (Production Architecture)
+
+```
+Internet → Front Door Premium (WAF) → Private Link → Internal LB → Istio Gateway → Apps
+Internet → Front Door Premium (WAF) → Private Link → APIM → Internal LB → Istio Gateway → APIs
+Internet → Front Door Premium (CDN) → Blob Storage (Static Assets - Cached)
+```
+
+**Why This Architecture:**
+- ✅ **Zero public exposure** - No public IPs on Internal LB or APIM
+- ✅ **Traffic stays on Azure backbone** - Never traverses public internet
+- ✅ **Simpler architecture** - No App Gateway needed (Front Door handles WAF)
+- ✅ **Enterprise-grade security** - Advanced WAF, bot protection, DDoS at edge
+- ✅ **Similar cost** - App Gateway elimination offsets Premium SKU cost
+
+### POC Branch: `argocd-integration`
+
+```
+Internet → Front Door → App Gateway → Internal LB → Istio Gateway → Apps
+Internet → Front Door → APIM → Internal LB → Istio Gateway → APIs
+```
+
+**Characteristics:**
+- Lower cost option (Front Door Standard)
+- App Gateway and APIM have public endpoints (can be bypassed)
+- Good for development and cost-sensitive scenarios
+
+---
 
 ## Key Technologies
 
 - **Kubernetes Gateway API** (NOT classic Ingress)
 - **Istio Ambient Mesh** (NOT sidecar mode)
-- **Azure Application Gateway v2** (Web Traffic)
-- **Azure API Management** (API Traffic)
-- **Azure Front Door Premium** (CDN caching for static assets)
+- **Azure Front Door Premium** (CDN, WAF, Private Link)
+- **Azure Private Link** (Secure backend connectivity)
+- **Azure API Management** (API Traffic via Private Link)
 - **Azure Blob Storage** (Static asset hosting - similar to AWS S3)
 - **ArgoCD** with **Sync Waves** (GitOps for all K8s resources)
 - **Azure Service Operator (ASO)** (Manages APIM APIs via K8s CRDs)
@@ -25,8 +67,9 @@ Everything on AKS is managed via ArgoCD with Sync Waves for proper dependency or
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       TERRAFORM (Infrastructure Only)                        │
 │  - AKS Cluster, VNet, Subnets, NSGs                                         │
-│  - Azure Application Gateway                                                 │
+│  - Azure Front Door Premium + Private Link                                  │
 │  - Azure API Management (instance only, not API configs)                    │
+│  - Private Link Service for Internal LB                                     │
 │  - ArgoCD bootstrap                                                          │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
