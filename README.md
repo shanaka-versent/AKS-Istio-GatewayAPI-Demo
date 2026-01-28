@@ -4,50 +4,6 @@ This POC validates Azure Application Gateway integration with Kubernetes Gateway
 
 Kubernetes Gateway API provides a superior approach to multi-tenancy compared to legacy Ingress controllers. With Gateway API, a single shared Gateway serves as the centralized entry point, while individual HTTPRoutes in each tenant's namespace define their own routing rules. This eliminates the need to deploy separate Ingress controllers per tenant, reducing infrastructure overhead, simplifying operations, and enabling consistent traffic policies across all tenants through a unified control plane.
 
----
-
-## 🔀 Branch Architecture
-
-This repository has two branches with different architectures:
-
-| Branch | Architecture | Use Case | Cost |
-|--------|--------------|----------|------|
-| **`argocd-integration`** (this branch) | Front Door → App Gateway → Internal LB | POC, Development, Cost-sensitive | ~$335/mo |
-| **`reference-architecture`** | Front Door → Private Link → Internal LB | Production, Enterprise, Security-first | ~$380/mo |
-
-### This Branch: `argocd-integration` (POC Architecture)
-
-```
-Internet → Front Door (CDN) → App Gateway (WAF) → Internal LB → Istio Gateway → Apps
-Internet → Front Door (CDN) → APIM (API Management) → Internal LB → Istio Gateway → APIs
-Internet → Front Door (CDN) → Blob Storage (Static Assets - Cached)
-```
-
-**Characteristics:**
-- ✅ Lower cost (Front Door Standard or Premium)
-- ✅ Familiar App Gateway pattern
-- ⚠️ App Gateway and APIM have public endpoints (can be bypassed)
-- ⚠️ Traffic traverses public internet between Front Door and backends
-
-### Production Branch: `reference-architecture`
-
-```
-Internet → Front Door Premium (WAF) → Private Link → Internal LB → Istio Gateway → Apps
-Internet → Front Door Premium (WAF) → Private Link → APIM → Internal LB → Istio Gateway → APIs
-Internet → Front Door Premium (CDN) → Blob Storage (Static Assets - Cached)
-```
-
-**Characteristics:**
-- ✅ Zero public exposure on backends (no public IPs)
-- ✅ Traffic never leaves Azure backbone
-- ✅ Simpler architecture (no App Gateway needed)
-- ✅ Enterprise-grade security
-- ⚠️ Requires Front Door Premium SKU (~$330/mo)
-
-> **Recommendation:** Use `reference-architecture` branch for production deployments. The cost difference (~$45/mo) is minimal because App Gateway is eliminated.
-
----
-
 ## Key Technologies
 
 - **Kubernetes Gateway API** (NOT classic Ingress)
