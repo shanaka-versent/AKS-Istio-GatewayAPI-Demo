@@ -79,6 +79,8 @@ Everything on AKS is managed via ArgoCD with Sync Waves for proper dependency or
 
 ## Architecture
 
+> **Note:** This branch uses **public endpoints** for App Gateway and APIM. Front Door connects via public internet (not Private Link). For a Private Link architecture, see the `reference-architecture` branch.
+
 ### High-Level Overview
 
 ```mermaid
@@ -89,36 +91,56 @@ flowchart TB
     end
 
     subgraph Azure["Azure Cloud"]
-        subgraph FrontDoor["Azure Front Door (WAF + CDN)"]
-            FD["Front Door Premium<br/>*.azurefd.net<br/>🛡️ WAF Protection"]
-            FD_Static["/static/* → Blob Storage"]
-            FD_Web["/app*, /demo → App Gateway"]
-            FD_API["/api/* → APIM"]
+        subgraph FrontDoor["Azure Front Door Premium (WAF + CDN)"]
+            FD_WAF["🛡️ WAF Rules<br/>OWASP, Bot Protection"]
+            FD_Routes["Route Rules"]
+            FD_Cache["Edge Caching"]
         end
 
-        Blob["Azure Blob Storage<br/>(Static Assets)"]
+        Blob["Azure Blob Storage<br/>(Static Assets)<br/>/static/*"]
 
-        subgraph Backends["Backend Services (TLS Termination #1)"]
-            subgraph AppGWBox["Azure App Gateway (Web Traffic)"]
-                AppGW_IP["Public IP: 68.218.110.49"]
-                AppGW_Backend["Backend Pool: 10.0.1.x"]
+        subgraph AppGW["Azure Application Gateway v2"]
+            subgraph AppGW_Frontend["Frontend (Public)"]
+                AppGW_PIP["Public IP<br/>68.218.110.49"]
+                AppGW_Listener["HTTPS Listener :443<br/>TLS Termination"]
             end
-            subgraph APIMBox["Azure APIM (API Traffic)"]
-                APIM_URL["apim-mtkc-poc.azure-api.net"]
-                APIM_Backend["Backend Pool: 10.0.1.x"]
-                APIM_Features["• Rate Limiting  • API Versioning<br/>• Developer Portal  • Analytics"]
+            subgraph AppGW_Rules["Routing"]
+                AppGW_Rule["Request Routing Rule<br/>Path-based routing"]
             end
+            subgraph AppGW_Backend["Backend"]
+                AppGW_Pool["Backend Pool<br/>Target: 10.0.1.x (ILB)"]
+                AppGW_Settings["HTTP Settings<br/>HTTPS:443, Host Header"]
+                AppGW_Probe["Health Probe<br/>GET /healthz/ready"]
+                AppGW_Cert["Trusted Root CA<br/>ca.crt"]
+            end
+        end
+
+        subgraph APIM["Azure API Management"]
+            subgraph APIM_Frontend["Frontend (Public)"]
+                APIM_GW["Gateway URL<br/>apim-mtkc-poc.azure-api.net"]
+                APIM_TLS["TLS Termination"]
+            end
+            subgraph APIM_Policies["Policies"]
+                APIM_Rate["Rate Limiting"]
+                APIM_Auth["Authentication"]
+                APIM_Transform["Request Transform"]
+            end
+            subgraph APIM_Backend["Backend"]
+                APIM_Pool["Backend URL<br/>https://10.0.1.x (ILB)"]
+                APIM_Cert["Trusted Root CA<br/>ca.crt"]
+            end
+            APIM_Portal["Developer Portal"]
         end
 
         subgraph AKS["AKS Cluster (Istio Ambient Mesh)"]
-            ILB["Internal Load Balancer<br/>10.0.1.x"]
+            ILB["Internal Load Balancer<br/>10.0.1.x<br/>⚠️ externalTrafficPolicy: Local"]
 
-            subgraph Gateway["Istio Gateway (TLS Termination #2)"]
-                GW["mtkc-gateway<br/>(K8s Gateway API)"]
+            subgraph Gateway["Istio Gateway"]
+                GW["mtkc-gateway<br/>TLS Termination<br/>istio-gw.crt"]
             end
 
             subgraph Routes["HTTPRoutes"]
-                AllRoutes["/healthz/*<br/>/app1<br/>/app2<br/>/demo<br/>/api/users"]
+                AllRoutes["/healthz/* /app1 /app2<br/>/demo /api/users"]
             end
 
             subgraph Apps["Applications"]
@@ -131,17 +153,23 @@ flowchart TB
         end
     end
 
-    WebClient -->|"HTTPS"| FD
-    APIClient -->|"HTTPS"| FD
-    FD_Static -->|"Cached"| Blob
-    FD_Web --> AppGW_IP
-    FD_API --> APIM_URL
+    WebClient -->|"HTTPS"| FD_WAF
+    APIClient -->|"HTTPS"| FD_WAF
+    FD_WAF --> FD_Routes
+    FD_Routes -->|"/static/*"| Blob
+    FD_Routes -->|"/app*, /demo<br/>Public Internet"| AppGW_PIP
+    FD_Routes -->|"/api/*<br/>Public Internet"| APIM_GW
 
-    AppGW_Backend -->|"HTTPS<br/>(re-encrypt)"| ILB
-    APIM_Backend -->|"HTTPS<br/>(re-encrypt)"| ILB
+    AppGW_Listener --> AppGW_Rule
+    AppGW_Rule --> AppGW_Pool
+    AppGW_Pool -->|"HTTPS<br/>(re-encrypt)"| ILB
 
-    ILB -->|"HTTPS"| GW
-    GW -->|"HTTP"| Routes
+    APIM_GW --> APIM_Policies
+    APIM_Policies --> APIM_Pool
+    APIM_Pool -->|"HTTPS<br/>(re-encrypt)"| ILB
+
+    ILB --> GW
+    GW --> Routes
     AllRoutes --> HealthApp
     AllRoutes --> WebApp1
     AllRoutes --> WebApp2
@@ -152,17 +180,17 @@ flowchart TB
     classDef frontdoor fill:#e8f5e9,stroke:#43a047,stroke-width:2px
     classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef appgw fill:#e6f2ff,stroke:#0078d4,stroke-width:2px
-    classDef apim fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef apim fill:#fff8e1,stroke:#ff8f00,stroke-width:2px
     classDef ilb fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef gateway fill:#e8eaf6,stroke:#466bb0,stroke-width:2px
-    classDef routes fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef routes fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     classDef apps fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 
     class WebClient,APIClient internet
-    class FrontDoor,FD,FD_Static,FD_Web,FD_API frontdoor
+    class FrontDoor,FD_WAF,FD_Routes,FD_Cache frontdoor
     class Blob storage
-    class AppGWBox,AppGW_IP,AppGW_Backend appgw
-    class APIMBox,APIM_URL,APIM_Backend,APIM_Features apim
+    class AppGW,AppGW_Frontend,AppGW_PIP,AppGW_Listener,AppGW_Rules,AppGW_Rule,AppGW_Backend,AppGW_Pool,AppGW_Settings,AppGW_Probe,AppGW_Cert appgw
+    class APIM,APIM_Frontend,APIM_GW,APIM_TLS,APIM_Policies,APIM_Rate,APIM_Auth,APIM_Transform,APIM_Backend,APIM_Pool,APIM_Cert,APIM_Portal apim
     class ILB ilb
     class GW gateway
     class AllRoutes routes
@@ -171,12 +199,22 @@ flowchart TB
 
 #### Traffic Flow Summary
 
-| Traffic Type | Entry Point | Path | Backend |
-|--------------|-------------|------|---------|
-| **Web Traffic** | App Gateway | `/app1`, `/app2` | sample-app-1, sample-app-2 |
-| **Health Probes** | App Gateway | `/healthz/*` | health-responder |
-| **API Traffic (v1)** | APIM | `/api/v1/users` | sample-api |
-| **API Traffic (v2)** | APIM | `/api/v2/users` | sample-api (or sample-api-v2) |
+| Traffic Type | Path | Flow |
+|--------------|------|------|
+| **Static Assets** | `/static/*` | Front Door → Blob Storage (cached at edge) |
+| **Web Traffic** | `/app1`, `/app2`, `/demo` | Front Door → (public internet) → App Gateway → ILB → Istio Gateway |
+| **API Traffic** | `/api/v1/users`, `/api/v2/users` | Front Door → (public internet) → APIM → ILB → Istio Gateway |
+| **Health Probes** | `/healthz/*` | App Gateway/APIM → ILB → Istio Gateway → health-responder |
+
+#### Component Details
+
+| Component | Public Endpoint | Internal Connection | Purpose |
+|-----------|----------------|---------------------|---------|
+| **Front Door** | *.azurefd.net | → App Gateway, APIM (public) | WAF, CDN, global routing |
+| **App Gateway** | 68.218.110.49 | → ILB (HTTPS, re-encrypt) | Web traffic, TLS termination |
+| **APIM** | apim-mtkc-poc.azure-api.net | → ILB (HTTPS, re-encrypt) | API management, policies |
+| **Internal LB** | None (internal only) | → Istio Gateway | Load balancing to pods |
+| **Istio Gateway** | None (internal only) | → Backend pods | TLS termination, routing |
 
 > **API Versioning:** APIM handles version routing externally. The backend receives requests on `/api/*` (version-agnostic). This allows API version changes without modifying K8s HTTPRoutes.
 
