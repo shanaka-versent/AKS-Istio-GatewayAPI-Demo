@@ -314,6 +314,12 @@ variable "front_door_waf_mode" {
   default     = "Detection"
 }
 
+variable "restrict_to_front_door" {
+  description = "Restrict App Gateway and APIM to accept traffic only from Azure Front Door (prevents bypassing WAF). Requires Front Door to be enabled."
+  type        = bool
+  default     = false
+}
+
 # Tags
 variable "tags" {
   description = "Tags for all resources"

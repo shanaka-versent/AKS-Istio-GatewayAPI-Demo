@@ -79,7 +79,7 @@ Everything on AKS is managed via ArgoCD with Sync Waves for proper dependency or
 
 ## Architecture
 
-> **Note:** This branch uses **public endpoints** for App Gateway and APIM. Front Door connects via public internet (not Private Link). For a Private Link architecture, see the `reference-architecture` branch.
+> **Note:** This branch uses **public endpoints** for App Gateway and APIM. Front Door connects via public internet (not Private Link). To prevent bypassing Front Door, enable `restrict_to_front_door = true` which configures NSG rules to allow only Azure Front Door traffic. For a true Private Link architecture (no public IPs), see the `reference-architecture` branch.
 
 ### High-Level Overview
 
@@ -1275,6 +1275,111 @@ terraform output recommended_urls
 | **Premium** | ~$330 + traffic | All Standard features + Private Link, advanced WAF, bot protection, mTLS |
 
 > **Recommendation:** Use Premium for enterprise deployments. The additional security features and Private Link support justify the cost difference.
+
+### Preventing Front Door Bypass (Security)
+
+> **Problem:** Without additional configuration, attackers could bypass Front Door (and its WAF) by directly accessing App Gateway or APIM public IPs.
+
+**Solution:** This POC implements NSG-based restriction to allow traffic only from Azure Front Door.
+
+#### Enable Front Door Restriction
+
+```hcl
+# terraform.tfvars
+enable_front_door         = true
+restrict_to_front_door    = true  # Enables NSG restriction
+```
+
+#### How It Works
+
+```mermaid
+flowchart TB
+    subgraph Internet["Internet"]
+        Attacker(["Attacker"])
+        LegitUser(["Legitimate User"])
+    end
+
+    subgraph Azure["Azure Cloud"]
+        FD["Azure Front Door<br/>*.azurefd.net<br/>Service Tag: AzureFrontDoor.Backend"]
+
+        subgraph NSG["NSG Rules (when restrict_to_front_door = true)"]
+            AllowFD["✅ Allow: AzureFrontDoor.Backend"]
+            DenyInternet["❌ Deny: Internet"]
+        end
+
+        AppGW["App Gateway"]
+        APIM["APIM"]
+    end
+
+    LegitUser -->|"HTTPS"| FD
+    FD -->|"Allowed by NSG"| AllowFD
+    AllowFD --> AppGW
+    AllowFD --> APIM
+
+    Attacker -->|"Direct Access<br/>Bypassing Front Door"| DenyInternet
+    DenyInternet -.->|"BLOCKED"| AppGW
+    DenyInternet -.->|"BLOCKED"| APIM
+
+    classDef user fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef attacker fill:#ffebee,stroke:#c62828,stroke-width:2px
+    classDef fd fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef allow fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    classDef deny fill:#ffcdd2,stroke:#d32f2f,stroke-width:2px
+
+    class LegitUser user
+    class Attacker attacker
+    class FD fd
+    class AllowFD allow
+    class DenyInternet deny
+```
+
+#### Security Layers
+
+| Layer | Protection | Implementation |
+|-------|------------|----------------|
+| **1. NSG Rules** | Block direct internet access | `source_address_prefix = "AzureFrontDoor.Backend"` |
+| **2. X-Azure-FDID Header** | Validate traffic from YOUR Front Door instance | App Gateway rewrite rules or APIM policy |
+
+#### X-Azure-FDID Header Validation
+
+NSG rules block traffic not from Azure Front Door's service tag, but another Azure customer's Front Door could still route to your backend. For complete security, validate the `X-Azure-FDID` header matches your Front Door's unique ID.
+
+**Get your Front Door ID:**
+```bash
+cd terraform && terraform output front_door_id
+# Example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+**Validate in App Gateway (via APIM policy or custom code):**
+```xml
+<!-- APIM inbound policy example -->
+<inbound>
+    <check-header name="X-Azure-FDID"
+                  failed-check-httpcode="403"
+                  failed-check-error-message="Invalid Front Door ID">
+        <value>YOUR-FRONT-DOOR-ID-HERE</value>
+    </check-header>
+</inbound>
+```
+
+#### Terraform Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `restrict_to_front_door` | false | Restrict App Gateway/APIM to accept traffic only from Azure Front Door |
+
+#### NSG Rules Applied
+
+When `restrict_to_front_door = true`:
+
+| Subnet | Rule | Priority | Source | Action |
+|--------|------|----------|--------|--------|
+| App Gateway | AllowHTTPSFromFrontDoor | 120 | AzureFrontDoor.Backend | Allow |
+| App Gateway | DenyDirectInternet | 4000 | Internet | Deny |
+| APIM | AllowHTTPSFromFrontDoor | 110 | AzureFrontDoor.Backend | Allow |
+| APIM | DenyDirectInternet | 4000 | Internet | Deny |
+
+> **Note:** This branch uses public endpoints. For true Private Link architecture (no public IPs), see the `reference-architecture` branch.
 
 ---
 

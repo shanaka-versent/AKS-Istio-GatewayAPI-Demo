@@ -49,3 +49,13 @@ output "sku_name" {
   description = "SKU of the Front Door profile"
   value       = azurerm_cdn_frontdoor_profile.main.sku_name
 }
+
+output "front_door_id" {
+  description = "Unique Front Door ID (X-Azure-FDID header value) for validating traffic origin"
+  value       = azurerm_cdn_frontdoor_profile.main.resource_guid
+}
+
+output "resource_id" {
+  description = "Resource ID of the Front Door profile"
+  value       = azurerm_cdn_frontdoor_profile.main.id
+}

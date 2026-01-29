@@ -89,28 +89,46 @@ resource "azurerm_network_security_rule" "gateway_manager" {
   network_security_group_name = azurerm_network_security_group.appgw.name
 }
 
+# Allow HTTP - from Front Door only when restricted, otherwise from Internet
 resource "azurerm_network_security_rule" "allow_http" {
-  name                        = "AllowHTTP"
+  name                        = var.restrict_to_front_door ? "AllowHTTPFromFrontDoor" : "AllowHTTP"
   priority                    = 110
   direction                   = "Inbound"
   access                      = "Allow"
   protocol                    = "Tcp"
   source_port_range           = "*"
   destination_port_range      = "80"
-  source_address_prefix       = "Internet"
+  source_address_prefix       = var.restrict_to_front_door ? "AzureFrontDoor.Backend" : "Internet"
   destination_address_prefix  = "*"
   resource_group_name         = var.resource_group_name
   network_security_group_name = azurerm_network_security_group.appgw.name
 }
 
+# Allow HTTPS - from Front Door only when restricted, otherwise from Internet
 resource "azurerm_network_security_rule" "allow_https" {
-  name                        = "AllowHTTPS"
+  name                        = var.restrict_to_front_door ? "AllowHTTPSFromFrontDoor" : "AllowHTTPS"
   priority                    = 120
   direction                   = "Inbound"
   access                      = "Allow"
   protocol                    = "Tcp"
   source_port_range           = "*"
   destination_port_range      = "443"
+  source_address_prefix       = var.restrict_to_front_door ? "AzureFrontDoor.Backend" : "Internet"
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.appgw.name
+}
+
+# Deny direct Internet access when Front Door restriction is enabled
+resource "azurerm_network_security_rule" "deny_internet_appgw" {
+  count                       = var.restrict_to_front_door ? 1 : 0
+  name                        = "DenyDirectInternet"
+  priority                    = 4000
+  direction                   = "Inbound"
+  access                      = "Deny"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
   source_address_prefix       = "Internet"
   destination_address_prefix  = "*"
   resource_group_name         = var.resource_group_name
@@ -156,16 +174,32 @@ resource "azurerm_network_security_rule" "apim_management" {
   network_security_group_name = azurerm_network_security_group.apim[0].name
 }
 
-# Allow HTTPS from Internet to APIM
+# Allow HTTPS - from Front Door only when restricted, otherwise from Internet
 resource "azurerm_network_security_rule" "apim_https" {
   count                       = var.enable_apim_subnet ? 1 : 0
-  name                        = "AllowHTTPS"
+  name                        = var.restrict_to_front_door ? "AllowHTTPSFromFrontDoor" : "AllowHTTPS"
   priority                    = 110
   direction                   = "Inbound"
   access                      = "Allow"
   protocol                    = "Tcp"
   source_port_range           = "*"
   destination_port_range      = "443"
+  source_address_prefix       = var.restrict_to_front_door ? "AzureFrontDoor.Backend" : "Internet"
+  destination_address_prefix  = "VirtualNetwork"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.apim[0].name
+}
+
+# Deny direct Internet access to APIM when Front Door restriction is enabled
+resource "azurerm_network_security_rule" "deny_internet_apim" {
+  count                       = var.enable_apim_subnet && var.restrict_to_front_door ? 1 : 0
+  name                        = "DenyDirectInternet"
+  priority                    = 4000
+  direction                   = "Inbound"
+  access                      = "Deny"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
   source_address_prefix       = "Internet"
   destination_address_prefix  = "VirtualNetwork"
   resource_group_name         = var.resource_group_name

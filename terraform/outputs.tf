@@ -156,6 +156,16 @@ output "front_door_sku" {
   value       = var.enable_front_door ? module.front_door[0].sku_name : null
 }
 
+output "front_door_id" {
+  description = "Unique Front Door ID (X-Azure-FDID header value) for validating traffic origin"
+  value       = var.enable_front_door ? module.front_door[0].front_door_id : null
+}
+
+output "front_door_restriction_enabled" {
+  description = "Whether App Gateway and APIM are restricted to Front Door traffic only"
+  value       = var.enable_front_door && var.restrict_to_front_door
+}
+
 output "static_assets_storage_account" {
   description = "Storage account name for static assets"
   value       = var.enable_front_door ? module.static_assets[0].storage_account_name : null

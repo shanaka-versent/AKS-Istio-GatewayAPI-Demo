@@ -38,3 +38,17 @@ apim_sku_name             = "Developer_1"  # ~$50/month for POC
 apim_virtual_network_type = "External"     # Public IP + VNet access to backend
 apim_publisher_name       = "MTKC POC"
 apim_publisher_email      = "admin@example.com"
+
+# Azure Front Door Configuration (CDN + WAF)
+# Provides global caching, WAF protection, and unified entry point
+enable_front_door         = true
+front_door_sku            = "Premium_AzureFrontDoor"  # Required for advanced WAF features
+enable_front_door_waf     = true
+front_door_waf_mode       = "Prevention"  # Detection or Prevention
+
+# Security: Restrict App Gateway and APIM to Front Door traffic only
+# This prevents bypassing WAF by accessing App Gateway or APIM directly
+# NSG rules will only allow traffic from AzureFrontDoor.Backend service tag
+# Note: For complete validation, configure X-Azure-FDID header checking
+# The Front Door ID will be output after apply for header validation setup
+restrict_to_front_door    = true

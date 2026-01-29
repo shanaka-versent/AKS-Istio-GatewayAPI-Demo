@@ -35,6 +35,9 @@ module "network" {
   enable_apim_subnet = var.enable_apim
   apim_subnet_cidr   = var.apim_subnet_cidr
 
+  # Security: Restrict traffic to Front Door only (prevents bypassing WAF)
+  restrict_to_front_door = var.enable_front_door && var.restrict_to_front_door
+
   tags = var.tags
 }
 
