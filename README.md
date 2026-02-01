@@ -10,6 +10,7 @@ This branch (`argocd-integration`) extends the base POC with:
 |-------------|-------------|
 | **ArgoCD GitOps** | All K8s resources managed via ArgoCD with Sync Waves |
 | **WAF v2** | OWASP 3.2 rules, bot protection on Application Gateway |
+| **API Management** | APIs exposed via Azure APIM with versioning support |
 | **APIM Security Policies** | Rate limiting, security headers, request validation |
 | **Azure Service Operator** | APIM API configs managed via K8s CRDs |
 | **Modular Terraform** | Organized into reusable modules |
