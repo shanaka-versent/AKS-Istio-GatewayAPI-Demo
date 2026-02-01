@@ -35,9 +35,6 @@ module "network" {
   enable_apim_subnet = var.enable_apim
   apim_subnet_cidr   = var.apim_subnet_cidr
 
-  # Security: Restrict traffic to Front Door only (prevents bypassing WAF)
-  restrict_to_front_door = var.enable_front_door && var.restrict_to_front_door
-
   tags = var.tags
 }
 
@@ -83,7 +80,7 @@ module "aks" {
   tags = var.tags
 }
 
-# Application Gateway Module
+# Application Gateway Module (with WAF v2)
 module "app_gateway" {
   source = "./modules/app_gateway"
 
@@ -98,6 +95,11 @@ module "app_gateway" {
   ssl_cert_password     = var.appgw_ssl_cert_password
   backend_https_enabled = var.backend_https_enabled
   backend_ca_cert_path  = "${path.module}/../certs/ca.crt"
+
+  # WAF v2 Configuration
+  enable_waf       = var.enable_appgw_waf
+  waf_mode         = var.appgw_waf_mode
+  waf_rule_set_version = var.appgw_waf_rule_set_version
 
   # Autoscaling (optional)
   enable_autoscaling = var.enable_appgw_autoscaling
@@ -126,7 +128,7 @@ module "argocd" {
 }
 
 # Azure API Management Module (optional)
-# Infrastructure only - API configs managed by ASO via ArgoCD
+# Infrastructure + global security policies - API configs managed by ASO via ArgoCD
 module "apim" {
   source = "./modules/apim"
   count  = var.enable_apim ? 1 : 0
@@ -146,6 +148,11 @@ module "apim" {
   virtual_network_type = var.apim_virtual_network_type
   subnet_id            = module.network.apim_subnet_id
 
+  # Global Security Policies
+  enable_global_policy = var.enable_apim_global_policy
+  rate_limit_calls     = var.apim_rate_limit_calls
+  rate_limit_period    = var.apim_rate_limit_period
+
   tags = var.tags
 
   depends_on = [module.network, module.aks]
@@ -155,59 +162,3 @@ module "apim" {
   # See: kubernetes/10-apim-api-config.yaml
 }
 
-# =============================================================================
-# Azure Front Door + Blob Storage for CDN Caching
-# Similar to AWS CloudFront + S3 pattern
-# =============================================================================
-
-# Static Assets Storage (Blob Storage)
-module "static_assets" {
-  source = "./modules/static_assets"
-  count  = var.enable_front_door ? 1 : 0
-
-  name_prefix          = local.name_prefix
-  suffix               = random_string.suffix.result
-  location             = var.location
-  resource_group_name  = module.resource_group.name
-  upload_sample_assets = var.upload_sample_static_assets
-
-  allowed_origins = var.enable_front_door ? [
-    "https://${local.name_prefix}-endpoint.azurefd.net",
-    "https://${module.app_gateway.public_ip}"
-  ] : ["*"]
-
-  tags = var.tags
-}
-
-# Azure Front Door (CDN + WAF)
-# Routes:
-#   /static/* -> Blob Storage (cached 1 year)
-#   /app*, /demo, /* -> App Gateway (no cache)
-#   /api/* -> APIM (optional - enable for global/multi-region deployments)
-module "front_door" {
-  source = "./modules/front_door"
-  count  = var.enable_front_door ? 1 : 0
-
-  name_prefix         = local.name_prefix
-  resource_group_name = module.resource_group.name
-  location            = var.location
-
-  # SKU: Standard for POC, Premium for private APIM integration
-  sku_name = var.front_door_sku
-
-  # Origins
-  blob_storage_host = module.static_assets[0].primary_web_host
-  app_gateway_host  = module.app_gateway.public_ip
-
-  # APIM Origin - enable for global/multi-region deployments, unified WAF, L7 DDoS
-  enable_apim_origin = false  # Enable if you need global distribution or unified entry point
-  apim_host          = var.enable_apim ? module.apim[0].gateway_url : ""
-
-  # WAF (optional)
-  enable_waf = var.enable_front_door_waf
-  waf_mode   = var.front_door_waf_mode
-
-  tags = var.tags
-
-  depends_on = [module.static_assets, module.app_gateway]
-}

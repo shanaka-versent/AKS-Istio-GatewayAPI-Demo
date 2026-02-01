@@ -1,4 +1,4 @@
-# Application Gateway Module
+# Application Gateway Module (with optional WAF v2)
 # @author Shanaka Jayasundera - shanakaj@gmail.com
 
 # Public IP for App Gateway
@@ -11,16 +11,78 @@ resource "azurerm_public_ip" "main" {
   tags                = var.tags
 }
 
-# Application Gateway with End-to-End TLS
+# =============================================================================
+# WAF Policy (optional - enabled via enable_waf variable)
+# =============================================================================
+resource "azurerm_web_application_firewall_policy" "main" {
+  count               = var.enable_waf ? 1 : 0
+  name                = "waf-policy-${var.name_prefix}"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  tags                = var.tags
+
+  # Policy Settings
+  policy_settings {
+    enabled                     = true
+    mode                        = var.waf_mode
+    request_body_check          = true
+    file_upload_limit_in_mb     = var.waf_file_upload_limit_mb
+    max_request_body_size_in_kb = var.waf_max_request_body_size_kb
+  }
+
+  # OWASP Rule Set (Core protection)
+  managed_rules {
+    managed_rule_set {
+      type    = "OWASP"
+      version = var.waf_rule_set_version
+    }
+
+    # Microsoft Bot Manager (optional - blocks known bad bots)
+    dynamic "managed_rule_set" {
+      for_each = var.enable_bot_protection ? [1] : []
+      content {
+        type    = "Microsoft_BotManagerRuleSet"
+        version = "1.0"
+      }
+    }
+  }
+
+  # Custom Rules (optional)
+  dynamic "custom_rules" {
+    for_each = var.waf_custom_rules
+    content {
+      name      = custom_rules.value.name
+      priority  = custom_rules.value.priority
+      rule_type = custom_rules.value.rule_type
+      action    = custom_rules.value.action
+
+      match_conditions {
+        match_variables {
+          variable_name = custom_rules.value.match_variable
+          selector      = lookup(custom_rules.value, "selector", null)
+        }
+        operator           = custom_rules.value.operator
+        negation_condition = lookup(custom_rules.value, "negation", false)
+        match_values       = custom_rules.value.match_values
+      }
+    }
+  }
+}
+
+# Application Gateway with End-to-End TLS (optionally WAF_v2)
 resource "azurerm_application_gateway" "main" {
   name                = "appgw-${var.name_prefix}"
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
 
+  # Associate WAF Policy when enabled
+  firewall_policy_id = var.enable_waf ? azurerm_web_application_firewall_policy.main[0].id : null
+
   sku {
-    name     = var.sku_name
-    tier     = var.sku_tier
+    # Use WAF_v2 SKU when WAF is enabled, otherwise Standard_v2
+    name     = var.enable_waf ? "WAF_v2" : var.sku_name
+    tier     = var.enable_waf ? "WAF_v2" : var.sku_tier
     capacity = var.enable_autoscaling ? null : var.capacity
   }
 

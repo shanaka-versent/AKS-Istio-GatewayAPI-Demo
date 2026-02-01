@@ -55,3 +55,48 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# =============================================================================
+# Global Security Policy Variables
+# =============================================================================
+variable "enable_global_policy" {
+  description = "Enable global security policies (rate limiting, CORS, security headers)"
+  type        = bool
+  default     = true
+}
+
+variable "rate_limit_calls" {
+  description = "Maximum number of calls allowed per renewal period per IP"
+  type        = number
+  default     = 100
+}
+
+variable "rate_limit_period" {
+  description = "Rate limit renewal period in seconds"
+  type        = number
+  default     = 60
+}
+
+variable "max_request_body_size" {
+  description = "Maximum request body size in bytes (default 1MB)"
+  type        = number
+  default     = 1048576
+}
+
+variable "enable_cors" {
+  description = "Enable CORS policy"
+  type        = bool
+  default     = false
+}
+
+variable "cors_allow_credentials" {
+  description = "Allow credentials in CORS requests"
+  type        = string
+  default     = "false"
+}
+
+variable "cors_allowed_origins" {
+  description = "List of allowed CORS origins"
+  type        = list(string)
+  default     = ["*"]
+}

@@ -177,6 +177,65 @@ variable "path_rules" {
   ]
 }
 
+# =============================================================================
+# WAF Configuration
+# =============================================================================
+variable "enable_waf" {
+  description = "Enable WAF v2 on Application Gateway"
+  type        = bool
+  default     = false
+}
+
+variable "waf_mode" {
+  description = "WAF mode: Detection (log only) or Prevention (block)"
+  type        = string
+  default     = "Prevention"
+  validation {
+    condition     = contains(["Detection", "Prevention"], var.waf_mode)
+    error_message = "WAF mode must be either 'Detection' or 'Prevention'."
+  }
+}
+
+variable "waf_rule_set_version" {
+  description = "OWASP rule set version (3.2 recommended)"
+  type        = string
+  default     = "3.2"
+}
+
+variable "enable_bot_protection" {
+  description = "Enable Microsoft Bot Manager rule set"
+  type        = bool
+  default     = true
+}
+
+variable "waf_file_upload_limit_mb" {
+  description = "Maximum file upload size in MB"
+  type        = number
+  default     = 100
+}
+
+variable "waf_max_request_body_size_kb" {
+  description = "Maximum request body size in KB"
+  type        = number
+  default     = 128
+}
+
+variable "waf_custom_rules" {
+  description = "List of custom WAF rules"
+  type = list(object({
+    name           = string
+    priority       = number
+    rule_type      = string
+    action         = string
+    match_variable = string
+    selector       = optional(string)
+    operator       = string
+    negation       = optional(bool)
+    match_values   = list(string)
+  }))
+  default = []
+}
+
 # Tags
 variable "tags" {
   description = "Tags for resources"

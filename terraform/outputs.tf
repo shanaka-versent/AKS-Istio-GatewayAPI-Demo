@@ -133,67 +133,29 @@ output "apim_portal_url" {
 # See: kubernetes/10-apim-api-config.yaml
 
 # =============================================================================
-# Azure Front Door + Blob Storage Outputs
+# WAF Configuration Outputs
 # =============================================================================
 
-output "front_door_enabled" {
-  description = "Whether Azure Front Door is enabled"
-  value       = var.enable_front_door
+output "appgw_waf_enabled" {
+  description = "Whether WAF v2 is enabled on Application Gateway"
+  value       = var.enable_appgw_waf
 }
 
-output "front_door_endpoint_url" {
-  description = "Azure Front Door endpoint URL"
-  value       = var.enable_front_door ? module.front_door[0].endpoint_url : null
+output "appgw_waf_mode" {
+  description = "Application Gateway WAF mode (Detection or Prevention)"
+  value       = var.enable_appgw_waf ? var.appgw_waf_mode : null
 }
 
-output "front_door_static_assets_url" {
-  description = "URL for static assets via Front Door"
-  value       = var.enable_front_door ? module.front_door[0].static_assets_url : null
-}
-
-output "front_door_sku" {
-  description = "Azure Front Door SKU"
-  value       = var.enable_front_door ? module.front_door[0].sku_name : null
-}
-
-output "front_door_id" {
-  description = "Unique Front Door ID (X-Azure-FDID header value) for validating traffic origin"
-  value       = var.enable_front_door ? module.front_door[0].front_door_id : null
-}
-
-output "front_door_restriction_enabled" {
-  description = "Whether App Gateway and APIM are restricted to Front Door traffic only"
-  value       = var.enable_front_door && var.restrict_to_front_door
-}
-
-output "static_assets_storage_account" {
-  description = "Storage account name for static assets"
-  value       = var.enable_front_door ? module.static_assets[0].storage_account_name : null
-}
-
-output "static_assets_direct_url" {
-  description = "Direct URL for static assets (Blob Storage)"
-  value       = var.enable_front_door ? module.static_assets[0].static_assets_base_url : null
-}
-
-output "front_door_urls" {
-  description = "URLs for accessing applications via Front Door"
-  value = var.enable_front_door ? {
-    home        = module.front_door[0].endpoint_url
-    demo        = "${module.front_door[0].endpoint_url}/demo"
-    app1        = "${module.front_door[0].endpoint_url}/app1"
-    app2        = "${module.front_door[0].endpoint_url}/app2"
-    static_css  = "${module.front_door[0].endpoint_url}/static/css/styles.css"
-    static_logo = "${module.front_door[0].endpoint_url}/static/images/logo.svg"
-  } : null
+output "apim_global_policy_enabled" {
+  description = "Whether global security policies are enabled on APIM"
+  value       = var.enable_apim ? var.enable_apim_global_policy : null
 }
 
 # Recommended access patterns
 output "recommended_urls" {
   description = "Recommended URLs for different traffic types"
   value = {
-    web_traffic = var.enable_front_door ? "Via Front Door: ${module.front_door[0].endpoint_url}" : "Via App Gateway: https://${module.app_gateway.public_ip_address}"
-    api_traffic = var.enable_apim ? "Via APIM directly: ${module.apim[0].apim_gateway_url}" : "API not enabled"
-    static_assets = var.enable_front_door ? "Via Front Door: ${module.front_door[0].static_assets_url}" : "Front Door not enabled"
+    web_traffic = "Via App Gateway: https://${module.app_gateway.public_ip_address}"
+    api_traffic = var.enable_apim ? "Via APIM: ${module.apim[0].apim_gateway_url}" : "APIM not enabled"
   }
 }

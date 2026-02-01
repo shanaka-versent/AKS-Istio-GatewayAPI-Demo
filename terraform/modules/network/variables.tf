@@ -43,12 +43,6 @@ variable "enable_apim_subnet" {
   default     = false
 }
 
-variable "restrict_to_front_door" {
-  description = "Restrict App Gateway and APIM to accept traffic only from Azure Front Door (prevents bypassing WAF)"
-  type        = bool
-  default     = false
-}
-
 variable "tags" {
   description = "Tags for resources"
   type        = map(string)

@@ -272,52 +272,55 @@ variable "apim_virtual_network_type" {
 # See: kubernetes/10-apim-api-config.yaml
 
 # =============================================================================
-# Azure Front Door + Blob Storage (CDN Caching)
-# Similar to AWS CloudFront + S3 pattern
+# Application Gateway WAF v2 Configuration
 # =============================================================================
 
-variable "enable_front_door" {
-  description = "Enable Azure Front Door for CDN caching"
+variable "enable_appgw_waf" {
+  description = "Enable WAF v2 on Application Gateway (upgrades SKU to WAF_v2)"
   type        = bool
-  default     = false
-}
-
-variable "front_door_sku" {
-  description = "Front Door SKU. Premium recommended for enterprise features (advanced WAF, bot protection, Private Link, enhanced DDoS)."
-  type        = string
-  default     = "Premium_AzureFrontDoor"
-  # Standard: ~$35/month + traffic costs (basic features)
-  # Premium: ~$330/month + traffic costs (recommended for enterprise)
-  #   - Advanced WAF with custom rules
+  default     = true
+  # WAF_v2 provides:
+  #   - OWASP 3.2 Core Rule Set (SQL injection, XSS, etc.)
   #   - Microsoft Bot Manager
-  #   - Private Link to ANY origin (Storage, App Gateway, AKS, etc.)
-  #   - Enhanced DDoS protection
-  #   - TLS 1.3 + mTLS support
-  #   - Advanced analytics and insights
+  #   - Custom rules support
+  #   - Rate limiting
+  #   - Geo-filtering
 }
 
-variable "upload_sample_static_assets" {
-  description = "Upload sample static assets (CSS, JS, images) to Blob Storage"
+variable "appgw_waf_mode" {
+  description = "WAF mode: Detection (log only) or Prevention (block)"
+  type        = string
+  default     = "Prevention"
+}
+
+variable "appgw_waf_rule_set_version" {
+  description = "OWASP rule set version"
+  type        = string
+  default     = "3.2"
+  # 3.2 is the latest and recommended version
+  # Includes protection against OWASP Top 10
+}
+
+# =============================================================================
+# APIM Security Policy Configuration
+# =============================================================================
+
+variable "enable_apim_global_policy" {
+  description = "Enable global security policies on APIM (rate limiting, CORS, security headers)"
   type        = bool
   default     = true
 }
 
-variable "enable_front_door_waf" {
-  description = "Enable WAF policy on Front Door"
-  type        = bool
-  default     = false
+variable "apim_rate_limit_calls" {
+  description = "APIM rate limit: Maximum calls per renewal period per IP"
+  type        = number
+  default     = 100
 }
 
-variable "front_door_waf_mode" {
-  description = "WAF mode: Detection or Prevention"
-  type        = string
-  default     = "Detection"
-}
-
-variable "restrict_to_front_door" {
-  description = "Restrict App Gateway and APIM to accept traffic only from Azure Front Door (prevents bypassing WAF). Requires Front Door to be enabled."
-  type        = bool
-  default     = false
+variable "apim_rate_limit_period" {
+  description = "APIM rate limit: Renewal period in seconds"
+  type        = number
+  default     = 60
 }
 
 # Tags
