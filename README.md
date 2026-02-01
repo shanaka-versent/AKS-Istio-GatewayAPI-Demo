@@ -131,17 +131,19 @@ curl -k "https://<APP_GW_IP>/app1?id=1' OR '1'='1"
 
 All Kubernetes resources are managed via ArgoCD with Sync Waves:
 
-| Wave | Component |
-|------|-----------|
-| -1 | Istio Base (CRDs) |
-| 0 | Istiod, Istio CNI, ztunnel |
-| 1 | Namespaces (ambient mode) |
-| 2 | cert-manager |
-| 3 | Azure Service Operator |
-| 5 | Gateway + LoadBalancer |
-| 6 | ReferenceGrants + HTTPRoutes |
-| 7 | Applications |
-| 9 | APIM API Configuration (ASO) |
+| Wave | Component | Why This Order |
+|------|-----------|----------------|
+| -1 | Istio Base (CRDs) | CRDs must exist before resources use them |
+| 0 | Istiod, Istio CNI, ztunnel | Control plane needs CRDs ready |
+| 1 | Namespaces (ambient mode) | Need Istio running to apply ambient labels |
+| 2 | cert-manager | Certificate infrastructure |
+| 3 | Azure Service Operator | Azure operator for APIM APIs |
+| 5 | Gateway + LoadBalancer | Needs namespaces and Istio ready |
+| 6 | ReferenceGrants + HTTPRoutes | Need Gateway to exist |
+| 7 | Applications | Need routes configured |
+| 9 | APIM API Configuration (ASO) | Need apps deployed first |
+
+> **Note:** Negative waves are used for infrastructure prerequisites (CRDs, operators). This creates logical separation and makes the sync order self-documenting.
 
 ## Production Enhancement: APIM Behind App Gateway
 
