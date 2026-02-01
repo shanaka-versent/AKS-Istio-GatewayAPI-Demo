@@ -2,6 +2,18 @@
 
 This POC demonstrates Azure Application Gateway and API Management integration with Kubernetes Gateway API on AKS using Istio Ambient Mesh and ArgoCD GitOps.
 
+## Enhancements from Main Branch
+
+This branch (`argocd-integration`) extends the base POC with:
+
+| Enhancement | Description |
+|-------------|-------------|
+| **ArgoCD GitOps** | All K8s resources managed via ArgoCD with Sync Waves |
+| **WAF v2** | OWASP 3.2 rules, bot protection on Application Gateway |
+| **APIM Security Policies** | Rate limiting, security headers, request validation |
+| **Azure Service Operator** | APIM API configs managed via K8s CRDs |
+| **Modular Terraform** | Organized into reusable modules |
+
 ## Architecture Overview
 
 ```
